@@ -26,7 +26,7 @@ class FlyConfig:
     us_reward_shortcut: bool = True
     spontaneous: bool = True
     seed: int = 0
-    body: str = "simple"  # "nmf" (NeuroMechFly physics, web app) or "simple" (fast, experiment series)
+    body: str = "nmf"   # always NeuroMechFly physics; "simple" kept only for unit tests
 
 
 class Fly:

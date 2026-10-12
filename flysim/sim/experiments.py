@@ -67,6 +67,7 @@ def place_avoidance(cond="full", seed=0, t_base=20.0, t_train=30.0, t_test=30.0)
     f = Fly(FlyConfig("F", "female", starved_h=0, seed=seed, **CONDITIONS[cond]),
             pos=(-20, -20, 0), yaw=0.8)
     w.flies.append(f)
+    w.rebuild_physics()
     f.calibrate(w)
     rec = Recorder(w)
     rec.run(t_base, log_every=10)
@@ -98,6 +99,7 @@ def tmaze_choice(cond="full", seed=0, retention_h=(0.0,), t_train=30.0, t_test=3
     f = Fly(FlyConfig("F", "female", starved_h=0, seed=seed, **CONDITIONS[cond]),
             pos=(0, 0, 0), yaw=np.pi / 2)
     w.flies.append(f)
+    w.rebuild_physics()
     A = {"ethyl acetate": 1.0}
     B = {"isoamyl acetate": 1.0}
     rec = Recorder(w)
@@ -126,10 +128,7 @@ def tmaze_choice(cond="full", seed=0, retention_h=(0.0,), t_train=30.0, t_test=3
     for h in retention_h:
         f.brain.forget((h - elapsed_h) * 3600)
         elapsed_h = h
-        f.body.pos = np.array([0.0, 0.0, 0.0])
-        f.body.yaw = np.pi / 2
-        f.body.h = f.body.heading()
-        f.body.mode, f.body.surface = "walk", "floor"
+        f.body.teleport((0.0, 0.0, 0.0), np.pi / 2)
         w.extra_odor_sources = [((-40, 0, 0), A, 8.0), ((40, 0, 0), B, 8.0)]
         f.calibrate(w, 0.5)
         t_start = t
@@ -158,6 +157,7 @@ def food_search_after_aversion(cond="full", seed=0, t_naive=40.0, t_train=20.0, 
     f = Fly(FlyConfig("F", "female", starved_h=24, seed=seed, **CONDITIONS[cond]),
             pos=(-50, 0, 0), yaw=0.0)
     w.flies.append(f)
+    w.rebuild_physics()
     f.calibrate(w)
     rec = Recorder(w)
     rec.run(t_naive, log_every=10)
@@ -173,9 +173,7 @@ def food_search_after_aversion(cond="full", seed=0, t_naive=40.0, t_train=20.0, 
         t += 0.01
     w.shocks["F"] = 0.0
     f.pop_counts()
-    f.body.pos = np.array([-50.0, 0, 0])
-    f.body.mode, f.body.surface, f.body.yaw = "walk", "floor", 0.0
-    f.body.h = f.body.heading()
+    f.body.teleport((-50.0, 0.0, 0.0), 0.0)
     t0 = t
     rec.run(t_test, log_every=10, t0=t)
     fr2 = [x for x in rec.frames["F"] if x["t"] > t0]
@@ -194,6 +192,7 @@ def conflict(starved_h=24, seed=0, t=60.0, ring_temp=34.0):
     w.zones.append(Zone(center=(0.0, 0.0), radius=32.0, temp_c=ring_temp))
     f = Fly(FlyConfig("F", "female", starved_h=starved_h, seed=seed), pos=(-50, 0, 0), yaw=0.0)
     w.flies.append(f)
+    w.rebuild_physics()
     f.calibrate(w)
     rec = Recorder(w)
     rec.run(t, log_every=15)
@@ -220,6 +219,7 @@ def pair(mode="courtship", seconds=60.0, apple_days=2, seed=0):
     starts = [((-48, -4, 0), 0.3), ((-41, 4, 0), np.pi + 0.3)]
     for c, (p, y) in zip(cfgs, starts):
         w.flies.append(Fly(c, pos=p, yaw=y))
+    w.rebuild_physics()
     for f in w.flies:
         f.calibrate(w)
     rec = Recorder(w)

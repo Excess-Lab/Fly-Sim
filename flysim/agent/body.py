@@ -62,6 +62,11 @@ class Body:
     def eye(self, apple_c):
         return self.pos + 0.8 * self.normal(apple_c)
 
+    def teleport(self, pos, yaw):
+        self.pos, self.yaw = np.array(pos, float), yaw
+        self.mode, self.surface = "walk", "floor"
+        self.h = self.heading()
+
     def _sync_yaw(self):
         if abs(self.h[0]) + abs(self.h[1]) > 1e-6:
             self.yaw = float(np.arctan2(self.h[1], self.h[0]))

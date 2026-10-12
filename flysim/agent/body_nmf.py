@@ -181,6 +181,15 @@ class NMFBody:
     def heading(self):
         return np.array([np.cos(self.yaw), np.sin(self.yaw), 0.0])
 
+    def teleport(self, pos, yaw):
+        """Experimenter moves the fly (e.g. into the T-maze start): place it standing."""
+        self.arena.kinematic.pop(self.name, None)
+        self.mode = "walk"
+        self.arena.set_kinematic(self.name, np.array([pos[0], pos[1], max(pos[2], 0.0) + 0.8]), yaw)
+        self.arena.drive[self.name] = np.zeros(2)
+        self.arena.advance(0.02)
+        self.sync()
+
     def normal(self, apple_c):
         if self.mode == "fly":
             return np.array([0.0, 0.0, 1.0])

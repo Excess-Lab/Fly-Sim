@@ -47,11 +47,6 @@ SCHEMA = {
         "ach": {"label": "Вентиляция", "unit": "обм/ч", "min": 0, "max": 20, "step": 0.5,
                 "default": 2, "norm": "0 — герметично (CO₂ копится, O₂ падает); комната ~0.5–6"},
     },
-    "body": {
-        "realistic": {"label": "Реалистичное тело (NeuroMechFly, MuJoCo)", "type": "bool",
-                      "default": True, "norm": "ноги, гравитация, трение, сцепление, столкновения; "
-                                               "~×0.05 скорости. Выкл. — быстрое упрощённое тело"},
-    },
     "apple": {
         "age_days": {"label": "Возраст яблока", "unit": "дн", "min": 0.0, "max": 30.0, "step": 0.5,
                      "default": 2.0, "norm": "надрезанное: 1–3 дн брожение, 4–5 дн спирт, 7+ дн уксус и плесень"},
@@ -166,7 +161,7 @@ class Simulation:
         f = Fly(FlyConfig(name, sex, starved_h=starved_h, seed=self.n_made[sex] * 7 + (sex == "male"),
                           plasticity=bool(sci["plasticity"]), us_punish_shortcut=bool(sci["us_shortcut"]),
                           spontaneous=bool(sci["spontaneous"]),
-                          body="nmf" if self.cfg["body"]["realistic"] else "simple"), pos=pos, yaw=yaw)
+                          body="nmf"), pos=pos, yaw=yaw)
         if calibrate:
             f.calibrate(self.world, 0.5)
         if note:
