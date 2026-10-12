@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: flysim
+Version: 0.0.1
+Summary: Connectome-driven simulation of two Drosophila and a rotting apple
+Requires-Python: <3.13,>=3.12
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: pandas
+Requires-Dist: pyarrow
+Requires-Dist: numba
+Requires-Dist: brian2
+Requires-Dist: matplotlib
+Requires-Dist: pytest

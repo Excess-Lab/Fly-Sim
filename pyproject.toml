@@ -1,0 +1,18 @@
+[project]
+name = "flysim"
+version = "0.0.1"
+description = "Connectome-driven simulation of two Drosophila and a rotting apple"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy",
+    "scipy",
+    "pandas",
+    "pyarrow",
+    "numba",
+    "brian2",
+    "matplotlib",
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+include = ["flysim*"]

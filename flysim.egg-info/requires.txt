@@ -1,0 +1,8 @@
+numpy
+scipy
+pandas
+pyarrow
+numba
+brian2
+matplotlib
+pytest
