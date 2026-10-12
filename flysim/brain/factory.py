@@ -11,11 +11,15 @@ from flysim.data import annotations as A
 MALE_SYNAPSE_RATIO = 1.783
 
 _cache = {}
+_lock = __import__("threading").Lock()
 
 
 def load(sex: str):
-    if sex not in _cache:
-        _cache[sex] = A.load(sex)
+    if sex not in ("female", "male"):
+        raise ValueError(f"unknown sex {sex!r}")
+    with _lock:  # never build two multi-GB connectomes at once (8 GB RAM)
+        if sex not in _cache:
+            _cache[sex] = A.load(sex)
     return _cache[sex]
 
 

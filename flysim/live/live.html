@@ -3,175 +3,347 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fly-Sim Live</title>
+<title>Fly-Sim</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root { --bg:#f6f5f1; --panel:#fff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e2e0da; --accent:#c2410c;
-  --male:#2563eb; --female:#db2777; --brainbg:#101014; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#121214; --panel:#1b1b1e; --ink:#ececef;
-  --muted:#9a9aa2; --line:#2c2c31; --accent:#fb923c; --male:#60a5fa; --female:#f472b6; --brainbg:#08080a; } }
-:root[data-theme="dark"] { --bg:#121214; --panel:#1b1b1e; --ink:#ececef; --muted:#9a9aa2; --line:#2c2c31;
-  --accent:#fb923c; --male:#60a5fa; --female:#f472b6; --brainbg:#08080a; }
+:root {
+  --page: #e9e9e9; --sheet: #ffffff; --ink: #0d0d0d; --muted: #8a8a8a; --soft: #f3f3f3;
+  --folder: #e4e4e4; --line: #ececec; --ring: #f0f0f0;
+  --green: #1fa055; --red: #e5484d; --violet: #b23cf0; --orange: #ff8a00; --blue: #2f6bff;
+  --male: #2f6bff; --female: #e0368a; --brain: #0b0b0e;
+  --radius: 28px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --page: #0f0f10; --sheet: #18181a; --ink: #f2f2f2; --muted: #8d8d93; --soft: #222225;
+  --folder: #26262a; --line: #2a2a2e; --ring: #2a2a2e; --brain: #050506; } }
+:root[data-theme="dark"] { --page: #0f0f10; --sheet: #18181a; --ink: #f2f2f2; --muted: #8d8d93;
+  --soft: #222225; --folder: #26262a; --line: #2a2a2e; --ring: #2a2a2e; --brain: #050506; }
 * { box-sizing: border-box; }
-body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif; }
-header { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
-header h1 { font-size:17px; margin:0; }
-.pill { font-size:12px; padding:3px 9px; border-radius:99px; background:var(--panel); border:1px solid var(--line); color:var(--muted); }
-.live { color:#16a34a; } .live::before { content:"● "; }
-main { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:12px; padding:12px 16px; }
-@media (max-width:900px) { main { grid-template-columns:1fr; } }
-.card { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
-.card h2 { font-size:13px; font-weight:600; margin:0; padding:8px 12px; border-bottom:1px solid var(--line);
-  display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; }
-.card h2 span { color:var(--muted); font-weight:400; }
-#scene { width:100%; aspect-ratio:4/3; display:block; cursor:grab; }
-.brains { display:grid; gap:12px; align-content:start; }
-.brain canvas { width:100%; aspect-ratio:16/9; display:block; background:var(--brainbg); cursor:grab; }
-.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(105px,1fr)); gap:6px; padding:8px 12px; }
-.stat { font-size:12px; color:var(--muted); } .stat b { display:block; color:var(--ink); font-size:13.5px; font-variant-numeric:tabular-nums; }
-.log { max-height:200px; overflow:auto; padding:8px 12px; font:12px ui-monospace,Menlo,monospace; color:var(--muted); }
-.legend { display:flex; gap:12px; padding:6px 12px; font-size:12px; color:var(--muted); flex-wrap:wrap; }
-.dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:-1px; }
-button { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:5px 12px; font:inherit; cursor:pointer; }
+html, body { margin: 0; background: var(--page); color: var(--ink);
+  font-family: "Inter Tight", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font-size: 15px; letter-spacing: -0.02em; }
+button, input, select { font: inherit; letter-spacing: inherit; color: inherit; }
+
+/* top bar */
+.top { display: flex; align-items: center; gap: 18px; padding: 16px 24px 12px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; background: var(--sheet); padding: 6px 16px 6px 6px;
+  border-radius: 999px; font-weight: 500; }
+.brand .orb { width: 30px; height: 30px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #ffd84d, #ff8a00 55%, #ff5e3a); }
+.ctx { line-height: 1.05; }
+.ctx small { display: block; font-size: 10px; color: var(--muted); letter-spacing: 0; }
+.ctx b { font-weight: 500; font-size: 16px; }
+.tabs { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+.tab { border: 0; background: transparent; padding: 9px 16px; border-radius: 999px; color: var(--muted);
+  cursor: pointer; font-size: 14px; }
+.tab.on { background: var(--sheet); color: var(--ink); font-weight: 500; }
+
+/* sheet */
+.sheet { background: var(--sheet); margin: 0 16px 16px; border-radius: var(--radius); padding: 28px 28px 32px; min-height: calc(100vh - 92px); }
+.head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+h1 { font-size: 40px; font-weight: 500; margin: 0; letter-spacing: -0.045em; line-height: 1; }
+.sub { color: var(--muted); margin-top: 6px; font-size: 16px; }
+.pills { display: flex; gap: 6px; padding: 5px; border-radius: 999px; background: var(--ring); }
+.pill { background: var(--sheet); border-radius: 999px; padding: 6px 20px; text-align: center; min-width: 110px; }
+.pill small { display: block; font-size: 10px; color: var(--muted); letter-spacing: 0; }
+.pill b { font-weight: 500; font-size: 19px; font-variant-numeric: tabular-nums; }
+
+.bar { display: flex; gap: 8px; margin: 22px 0 26px; padding: 5px; border-radius: 999px; background: var(--ring); align-items: center; flex-wrap: wrap; }
+.bar .grow { flex: 1; min-width: 200px; padding: 10px 18px; background: var(--sheet); border-radius: 999px; color: var(--muted); font-size: 14px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn { border: 0; border-radius: 999px; padding: 11px 20px; background: var(--sheet); cursor: pointer; font-weight: 500; font-size: 14px; }
+.btn.dark { background: var(--ink); color: var(--sheet); }
+.btn.go { background: var(--ink); color: var(--sheet); padding: 14px 28px; font-size: 16px; }
+.btn:disabled { opacity: .4; cursor: default; }
+
+/* folder cards (setup) */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 30px 24px; }
+.folder { position: relative; }
+.folder .shape { position: relative; background: var(--folder); border-radius: 22px; padding: 70px 18px 16px; margin-top: 30px; min-height: 150px; }
+.folder .shape::before { content: ""; position: absolute; left: 0; top: -30px; width: 44%; height: 46px;
+  background: var(--folder); border-radius: 22px 22px 0 0; }
+.folder .shape::after { content: ""; position: absolute; left: calc(44% - 1px); top: -14px; width: 26px; height: 30px;
+  background: radial-gradient(circle at 100% 0, transparent 22px, var(--folder) 23px); }
+.sticker { position: absolute; left: 14px; top: -6px; z-index: 2; font-weight: 600; font-size: 38px; line-height: .9;
+  letter-spacing: -0.04em; transform: rotate(-6deg); color: var(--c, var(--green));
+  -webkit-text-stroke: 7px #fff; paint-order: stroke fill; text-shadow: 0 1px 0 rgba(0,0,0,.04); }
+.folder h3 { font-size: 26px; font-weight: 500; margin: 14px 0 2px; letter-spacing: -0.04em; }
+.folder .note { color: var(--muted); font-size: 13px; margin: 0; }
+.field { background: var(--sheet); border-radius: 16px; padding: 10px 12px; margin-top: 8px; }
+.field label { display: flex; justify-content: space-between; gap: 8px; font-size: 13.5px; }
+.field label b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.field input[type=range] { width: 100%; accent-color: var(--ink); margin: 6px 0 2px; }
+.field .norm { font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; }
+.toggle input { width: 38px; height: 22px; appearance: none; background: var(--folder); border-radius: 99px; position: relative; cursor: pointer; flex: none; }
+.toggle input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.toggle input:checked { background: var(--ink); } .toggle input:checked::after { left: 19px; }
+
+/* run view */
+.run { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 22px; }
+@media (max-width: 1000px) { .run { grid-template-columns: 1fr; } }
+.panel { background: var(--soft); border-radius: 22px; overflow: hidden; }
+.panel .ph { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 18px 8px; gap: 8px; flex-wrap: wrap; }
+.panel .ph h4 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -0.035em; }
+.panel .ph span { color: var(--muted); font-size: 12.5px; }
+#scene { width: 100%; aspect-ratio: 4 / 3; display: block; cursor: grab; }
+.brains { display: grid; gap: 18px; align-content: start; }
+.brain canvas { width: 100%; aspect-ratio: 16 / 9; display: block; background: var(--brain); cursor: grab; }
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; padding: 10px 12px 14px; }
+.stat { background: var(--sheet); border-radius: 12px; padding: 7px 10px; font-size: 11.5px; color: var(--muted); letter-spacing: 0; }
+.stat b { display: block; color: var(--ink); font-size: 15px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.apple-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; padding: 4px 12px 14px; }
+.meter { height: 4px; background: var(--folder); border-radius: 4px; margin-top: 6px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--ink); border-radius: 4px; }
+.log { max-height: 240px; overflow: auto; padding: 4px 18px 16px; font-size: 13px; line-height: 1.55; }
+.log div { display: flex; gap: 10px; } .log time { color: var(--muted); flex: none; width: 92px; font-variant-numeric: tabular-nums; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; padding: 0 18px 14px; font-size: 12px; color: var(--muted); letter-spacing: 0; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.err { white-space: pre-wrap; background: #fff1f1; color: #9b1c1c; padding: 12px; border-radius: 12px; font-size: 12px; margin-top: 12px; }
+.hidden { display: none !important; }
 </style>
 </head>
 <body>
-<header>
-  <h1>Fly-Sim · живой режим</h1>
-  <span class="pill live" id="conn">подключение…</span>
-  <span class="pill" id="clock">—</span>
-  <span class="pill" id="brood">—</span>
-  <span class="pill" id="status">—</span>
-  <button id="pause">⏸ Пауза расчёта</button>
-</header>
-<main>
-  <section class="card">
-    <h2>Арена <span id="appleinfo"></span></h2>
-    <canvas id="scene"></canvas>
-    <div class="legend" id="legend"></div>
-    <div class="log" id="log"></div>
+<div class="top">
+  <div class="brand"><span class="orb"></span>Fly-Sim</div>
+  <div class="ctx"><small>Мир</small><b>Мухи · воздух · яблоко</b></div>
+  <div class="tabs">
+    <button class="tab on" data-v="setup">Условия</button>
+    <button class="tab" data-v="run">Наблюдение</button>
+    <button class="tab" data-v="logs">Логи</button>
+  </div>
+</div>
+
+<div class="sheet">
+  <!-- SETUP -->
+  <section id="v-setup">
+    <div class="head">
+      <div><h1>Условия опыта</h1><div class="sub">Реальный мир в миниатюре: только мухи, воздух и яблоко</div></div>
+      <div class="pills"><div class="pill"><small>Нейронов на муху</small><b>139–165 тыс.</b></div><div class="pill"><small>Масштаб</small><b>×0.1</b></div></div>
+    </div>
+    <div class="bar">
+      <div class="grow">Поведение не программируется: всё, что муха делает, возникает из её коннектома. Допущения — в ASSUMPTIONS.md</div>
+      <button class="btn" id="reset">Сбросить</button>
+      <button class="btn go" id="start">Запустить ▸</button>
+    </div>
+    <div class="grid" id="form"></div>
   </section>
-  <section class="brains" id="brains"></section>
-</main>
+
+  <!-- RUN -->
+  <section id="v-run" class="hidden">
+    <div class="head">
+      <div><h1 id="runtitle">Наблюдение</h1><div class="sub" id="status">не запущено</div></div>
+      <div class="pills">
+        <div class="pill"><small>Мир</small><b id="day">—</b></div>
+        <div class="pill"><small>Сессия</small><b id="sess">—</b></div>
+      </div>
+    </div>
+    <div class="bar">
+      <div class="grow" id="brood">—</div>
+      <button class="btn" id="pause">Пауза</button>
+      <button class="btn" id="stop">Стоп</button>
+      <button class="btn dark" id="dl">Скачать логи</button>
+    </div>
+    <div class="run">
+      <div style="display:grid; gap:18px; align-content:start">
+        <div class="panel"><div class="ph"><h4>Арена</h4><span id="envinfo"></span></div><canvas id="scene"></canvas><div class="legend" id="legend"></div></div>
+        <div class="panel"><div class="ph"><h4>Яблоко</h4><span>значение · норма</span></div><div class="apple-grid" id="apple"></div></div>
+        <div class="panel"><div class="ph"><h4>Что происходит</h4><span>события с нейронными коррелятами</span></div><div class="log" id="log"></div></div>
+      </div>
+      <div class="brains" id="brains"></div>
+    </div>
+    <div id="error" class="err hidden"></div>
+  </section>
+
+  <!-- LOGS -->
+  <section id="v-logs" class="hidden">
+    <div class="head"><div><h1>Логи</h1><div class="sub">Для анализа в Excel, Python, R — что произошло, когда и что было в мозге</div></div></div>
+    <div class="grid" style="margin-top:24px" id="logcards"></div>
+  </section>
+</div>
+
 <script>
+const $ = s => document.querySelector(s);
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-function b64(s, T) { const bin = atob(s); const u = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); }
-let META = null, cur = null, next = 0;
-const brainStatic = {}, views = {}, allEvents = new Map();
+function b64(s, T) { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); }
+let SCHEMA = null, CFG = null, cur = null, next = 0, polling = false;
+const brainStatic = {}, views = {}, trails = {};
 const color = sex => sex === 'male' ? css('--male') : css('--female');
 
-function fit(c) { const r = c.getBoundingClientRect(); const d = devicePixelRatio || 1;
-  if (c.width !== Math.round(r.width * d)) { c.width = Math.round(r.width * d); c.height = Math.round(r.height * d); } }
-function drag(canvas, onMove) { let d = null;
-  canvas.addEventListener('pointerdown', e => { d = [e.clientX, e.clientY]; canvas.setPointerCapture(e.pointerId); });
-  canvas.addEventListener('pointermove', e => { if (!d) return; onMove(e.clientX - d[0], e.clientY - d[1]); d = [e.clientX, e.clientY]; draw(); });
-  canvas.addEventListener('pointerup', () => d = null);
-  canvas.addEventListener('wheel', e => { e.preventDefault(); onMove(0, 0, e.deltaY); draw(); }, { passive: false }); }
+// ---------- views ----------
+function show(v) { for (const t of document.querySelectorAll('.tab')) t.classList.toggle('on', t.dataset.v === v);
+  for (const s of ['setup', 'run', 'logs']) $('#v-' + s).classList.toggle('hidden', s !== v); if (v === 'run') draw(); }
+for (const t of document.querySelectorAll('.tab')) t.onclick = () => show(t.dataset.v);
 
-// arena
-const sc = document.getElementById('scene'), sx = sc.getContext('2d');
-let az = -0.6, el = 0.8, zoom = 1;
+// ---------- setup form ----------
+const GROUPS = { environment: ['Воздух', 'var(--blue)', 'Среда'], apple: ['Яблоко', 'var(--green)', 'Яблоко'],
+  flies: ['Мухи', 'var(--violet)', 'Мухи'], hot_zone: ['Жар', 'var(--red)', 'Неприятный стимул'],
+  science: ['Наука', 'var(--orange)', 'Контроли'], run: ['Время', 'var(--ink)', 'Расчёт'] };
+function fmt(v, step) { return step && step < 1 ? (+v).toFixed(String(step).split('.')[1].length) : String(Math.round(v)); }
+function buildForm() {
+  const f = $('#form'); f.innerHTML = '';
+  for (const [g, items] of Object.entries(SCHEMA.schema)) {
+    const [stk, col, title] = GROUPS[g];
+    const card = document.createElement('div'); card.className = 'folder';
+    let html = `<div class="sticker" style="--c:${col}">${stk}</div><div class="shape">`;
+    for (const [k, s] of Object.entries(items)) {
+      const v = CFG[g][k];
+      if (s.type === 'bool') html += `<div class="field"><label class="toggle">${s.label}<input type="checkbox" data-g="${g}" data-k="${k}" ${v ? 'checked' : ''}></label>${s.norm ? `<div class="norm">${s.norm}</div>` : ''}</div>`;
+      else html += `<div class="field"><label>${s.label}<b id="o-${g}-${k}">${fmt(v, s.step)} ${s.unit}</b></label>
+        <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${v}" data-g="${g}" data-k="${k}">${s.norm ? `<div class="norm">Норма: ${s.norm}</div>` : ''}</div>`;
+    }
+    html += `</div><h3>${title}</h3>`;
+    card.innerHTML = html; f.appendChild(card);
+  }
+  f.querySelectorAll('input').forEach(inp => inp.oninput = () => {
+    const { g, k } = inp.dataset, s = SCHEMA.schema[g][k];
+    CFG[g][k] = inp.type === 'checkbox' ? inp.checked : +inp.value;
+    if (inp.type !== 'checkbox') $(`#o-${g}-${k}`).textContent = `${fmt(inp.value, s.step)} ${s.unit}`;
+  });
+}
+$('#reset').onclick = () => { CFG = Object.fromEntries(Object.entries(SCHEMA.schema).map(([g, it]) => [g, Object.fromEntries(Object.entries(it).map(([k, s]) => [k, s.default]))])); buildForm(); };
+$('#start').onclick = async () => {
+  if (CFG.flies.males + CFG.flies.females === 0) { alert('Добавьте хотя бы одну муху'); return; }
+  $('#start').disabled = true; $('#start').textContent = 'Запуск…';
+  for (const n of Object.keys(views)) { views[n].card.remove(); delete views[n]; }
+  for (const k of Object.keys(trails)) delete trails[k];
+  cur = null; next = 0;
+  await fetch('/api/start', { method: 'POST', body: JSON.stringify(CFG) });
+  $('#start').disabled = false; $('#start').textContent = 'Запустить ▸';
+  show('run'); if (!polling) poll();
+};
+$('#stop').onclick = () => fetch('/api/stop', { method: 'POST', body: '{}' });
+$('#pause').onclick = async e => { const r = await (await fetch('/api/pause', { method: 'POST', body: '{}' })).json(); e.target.textContent = r.paused ? 'Продолжить' : 'Пауза'; };
+$('#dl').onclick = () => location.href = '/api/logs/all.zip';
+
+// logs view
+const LOGS = [['Всё архивом', 'all.zip', 'var(--ink)', 'Архив', 'события, ряды, яблоко, условия, допущения'],
+  ['События', 'events.txt', 'var(--violet)', 'Что было', 'читаемый журнал «произошло X»'],
+  ['События (JSON)', 'events.jsonl', 'var(--blue)', 'Для кода', 'одно событие на строку, с данными'],
+  ['Ряды', 'timeseries.csv', 'var(--orange)', 'Каждые 0.1 с', 'состояния и частоты нейронов по мухам'],
+  ['Яблоко', 'apple.csv', 'var(--green)', 'Порча', 'сахар, спирт, уксус, микробы, плесень, яйца']];
+$('#logcards').innerHTML = LOGS.map(([t, f, c, st, n]) => `<a class="folder" href="/api/logs/${f}" style="color:inherit;text-decoration:none">
+  <div class="sticker" style="--c:${c}">${st}</div><div class="shape" style="min-height:120px"></div><h3>${t}</h3><p class="note">${n}</p></a>`).join('');
+
+// ---------- drawing helpers ----------
+function fit(c) { const r = c.getBoundingClientRect(), d = devicePixelRatio || 1; if (c.width !== Math.round(r.width * d)) { c.width = Math.round(r.width * d); c.height = Math.round(r.height * d); } }
+function drag(cv, onMove) { let d = null;
+  cv.addEventListener('pointerdown', e => { d = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', e => { if (!d) return; onMove(e.clientX - d[0], e.clientY - d[1]); d = [e.clientX, e.clientY]; draw(); });
+  cv.addEventListener('pointerup', () => d = null);
+  cv.addEventListener('wheel', e => { e.preventDefault(); onMove(0, 0, e.deltaY); draw(); }, { passive: false }); }
+
+const sc = $('#scene'), sx = sc.getContext('2d'); let az = -0.6, el = 0.85, zoom = 1;
 drag(sc, (dx, dy, wh) => { az += dx * 0.01; el = Math.min(1.5, Math.max(0.1, el + dy * 0.01)); if (wh) zoom *= wh > 0 ? 0.9 : 1.1; });
 function proj(p, W, H, s) { const ca = Math.cos(az), sa = Math.sin(az), ce = Math.cos(el), se = Math.sin(el);
   const x = p[0] * ca - p[1] * sa, y = p[0] * sa + p[1] * ca; return [W / 2 + x * s, H / 2 + (y * ce - p[2] * se) * s * 0.95]; }
-const trails = {};
 function drawArena() {
   fit(sc); const W = sc.width, H = sc.height; sx.clearRect(0, 0, W, H); if (!cur) return;
-  const A = META.arena, s = Math.min(W, H) / (2.6 * A) * zoom;
-  sx.strokeStyle = css('--line');
-  for (let g = -A; g <= A + 1e-6; g += A / 4) { let a = proj([g, -A, 0], W, H, s), b = proj([g, A, 0], W, H, s);
-    sx.beginPath(); sx.moveTo(...a); sx.lineTo(...b); sx.stroke(); a = proj([-A, g, 0], W, H, s); b = proj([A, g, 0], W, H, s);
-    sx.beginPath(); sx.moveTo(...a); sx.lineTo(...b); sx.stroke(); }
+  const A = 55, s = Math.min(W, H) / (2.6 * A) * zoom, dpr = devicePixelRatio || 1;
+  sx.strokeStyle = css('--folder'); sx.lineWidth = 1;
+  for (let g = -A; g <= A + 1e-6; g += A / 4) { for (const [a, b] of [[[g, -A, 0], [g, A, 0]], [[-A, g, 0], [A, g, 0]]]) {
+    const p = proj(a, W, H, s), q = proj(b, W, H, s); sx.beginPath(); sx.moveTo(...p); sx.lineTo(...q); sx.stroke(); } }
+  for (const z of cur.zones) { sx.fillStyle = 'rgba(229,72,77,0.22)'; sx.beginPath();
+    for (let k = 0; k <= 48; k++) { const a = k / 48 * 2 * Math.PI, p = proj([z.center[0] + z.radius * Math.cos(a), z.center[1] + z.radius * Math.sin(a), 0], W, H, s); k ? sx.lineTo(...p) : sx.moveTo(...p); } sx.fill(); }
   const ap = cur.apple, p = proj(ap.center, W, H, s), R = ap.radius * s;
-  const g = sx.createRadialGradient(p[0] - R * 0.3, p[1] - R * 0.3, R * 0.1, p[0], p[1], R);
-  g.addColorStop(0, ap.color_light); g.addColorStop(1, ap.color); sx.fillStyle = g; sx.beginPath(); sx.arc(p[0], p[1], R, 0, 7); sx.fill();
-  const br = cur.brood, nb = (br.egg || 0) + (br.larva || 0) + (br.pupa || 0);
-  for (let k = 0; k < Math.min(nb, 60); k++) { const a = k * 2.4, rr = ap.radius * (0.3 + 0.6 * ((k * 37) % 10) / 10);
-    const q = proj([ap.center[0] + rr * Math.cos(a), ap.center[1] + rr * Math.sin(a), ap.center[2] + ap.radius * 0.95], W, H, s);
-    sx.fillStyle = k < br.egg ? '#fff8e1' : (k < br.egg + br.larva ? '#f5f5dc' : '#8d6e63'); sx.beginPath(); sx.arc(q[0], q[1], 2.2, 0, 7); sx.fill(); }
+  const gr = sx.createRadialGradient(p[0] - R * .3, p[1] - R * .35, R * .1, p[0], p[1], R); gr.addColorStop(0, ap.color_light); gr.addColorStop(1, ap.color);
+  sx.fillStyle = gr; sx.beginPath(); sx.arc(p[0], p[1], R, 0, 7); sx.fill();
+  if (ap.mold > 0.01) { sx.fillStyle = 'rgba(120,150,170,0.75)'; for (let k = 0; k < Math.round(ap.mold * 40); k++) { const a = k * 2.399, rr = R * (0.2 + 0.7 * ((k * 53) % 17) / 17);
+    sx.beginPath(); sx.arc(p[0] + rr * Math.cos(a), p[1] + rr * Math.sin(a) * .9, R * (0.05 + 0.08 * ap.mold), 0, 7); sx.fill(); } }
+  const br = cur.brood, nb = br.egg + br.larva + br.pupa;
+  for (let k = 0; k < Math.min(nb, 80); k++) { const a = k * 2.4, rr = R * (0.25 + 0.6 * ((k * 37) % 10) / 10);
+    sx.fillStyle = k < br.egg ? '#fffbe8' : (k < br.egg + br.larva ? '#f1ecd2' : '#8a5a3c'); sx.beginPath(); sx.arc(p[0] + rr * Math.cos(a), p[1] + rr * Math.sin(a) * .8, 2.2 * dpr, 0, 7); sx.fill(); }
   for (const [n, f] of Object.entries(cur.flies)) {
-    const tr = trails[n] || []; sx.strokeStyle = color(f.sex); sx.globalAlpha = 0.35; sx.beginPath();
+    const tr = trails[n] || []; sx.strokeStyle = color(f.sex); sx.globalAlpha = .35; sx.lineWidth = 1.5 * dpr; sx.beginPath();
     tr.forEach((pp, k) => { const q = proj(pp, W, H, s); k ? sx.lineTo(...q) : sx.moveTo(...q); }); sx.stroke(); sx.globalAlpha = 1;
-    const q = proj(f.pos, W, H, s), h = proj([f.pos[0] + 3 * Math.cos(f.yaw), f.pos[1] + 3 * Math.sin(f.yaw), f.pos[2]], W, H, s);
-    const r = Math.max(4, 1.25 * s);
-    if (f.mode === 'fly') { const z = proj([f.pos[0], f.pos[1], 0], W, H, s); sx.fillStyle = 'rgba(0,0,0,.15)'; sx.beginPath(); sx.arc(z[0], z[1], r, 0, 7); sx.fill(); }
+    const q = proj(f.pos, W, H, s), h = proj([f.pos[0] + 3 * Math.cos(f.yaw), f.pos[1] + 3 * Math.sin(f.yaw), f.pos[2]], W, H, s), r = Math.max(5 * dpr, 1.25 * s);
+    if (f.mode === 'fly') { const z = proj([f.pos[0], f.pos[1], 0], W, H, s); sx.fillStyle = 'rgba(0,0,0,.12)'; sx.beginPath(); sx.arc(z[0], z[1], r, 0, 7); sx.fill(); }
     sx.fillStyle = color(f.sex); sx.beginPath(); sx.arc(q[0], q[1], r, 0, 7); sx.fill();
-    sx.strokeStyle = color(f.sex); sx.lineWidth = 2; sx.beginPath(); sx.moveTo(...q); sx.lineTo(...h); sx.stroke(); sx.lineWidth = 1;
-    if (f.wing > 0.3) { sx.beginPath(); sx.arc(q[0], q[1], r * 2, 0, 7); sx.stroke(); }
-    if (f.proboscis) { sx.fillStyle = css('--accent'); sx.beginPath(); sx.arc(h[0], h[1], 3, 0, 7); sx.fill(); }
-    if (f.copulating) { sx.strokeStyle = '#e11d48'; sx.beginPath(); sx.arc(q[0], q[1], r * 2.6, 0, 7); sx.stroke(); }
-    sx.fillStyle = css('--ink'); sx.font = `${12 * (devicePixelRatio || 1)}px sans-serif`; sx.fillText(n, q[0] + r + 3, q[1] - r);
+    sx.strokeStyle = color(f.sex); sx.lineWidth = 2 * dpr; sx.beginPath(); sx.moveTo(...q); sx.lineTo(...h); sx.stroke();
+    if (f.wing > .3) { sx.lineWidth = 1 * dpr; sx.beginPath(); sx.arc(q[0], q[1], r * 2, 0, 7); sx.stroke(); }
+    if (f.proboscis) { sx.fillStyle = css('--orange'); sx.beginPath(); sx.arc(h[0], h[1], 3 * dpr, 0, 7); sx.fill(); }
+    if (f.copulating) { sx.strokeStyle = css('--red'); sx.lineWidth = 2 * dpr; sx.beginPath(); sx.arc(q[0], q[1], r * 2.6, 0, 7); sx.stroke(); }
+    sx.fillStyle = css('--ink'); sx.font = `500 ${13 * dpr}px "Inter Tight", sans-serif`; sx.fillText(n, q[0] + r + 4, q[1] - r);
   }
 }
 
-// brains
-const brainsEl = document.getElementById('brains');
 async function ensureBrain(n, sex) {
   if (views[n]) return;
-  if (!brainStatic[sex]) { brainStatic[sex] = 'loading';
-    const b = await (await fetch('/api/brain/' + sex)).json();
+  if (!brainStatic[sex]) { brainStatic[sex] = 'loading'; const b = await (await fetch('/api/brain/' + sex)).json();
     brainStatic[sex] = { n: b.n, xyz: b64(b.xyz, Float32Array), region: b64(b.region, Uint8Array) }; }
-  if (brainStatic[sex] === 'loading') return;
-  const card = document.createElement('section'); card.className = 'card brain';
-  card.innerHTML = `<h2>Мозг ${n} <span>${brainStatic[sex].n.toLocaleString('ru')} нейронов · ${sex === 'male' ? 'Male CNS' : 'FlyWire'}</span></h2><canvas></canvas><div class="stats"></div>`;
-  brainsEl.appendChild(card);
-  const cv = card.querySelector('canvas');
-  views[n] = { card, cv, ctx: cv.getContext('2d'), stats: card.querySelector('.stats'), az: 0, el: 0.15, zoom: 1, sex };
-  drag(cv, (dx, dy, wh) => { const v = views[n]; v.az += dx * 0.01; v.el = Math.max(-1.4, Math.min(1.4, v.el + dy * 0.01)); if (wh) v.zoom *= wh > 0 ? 0.9 : 1.1; });
+  if (brainStatic[sex] === 'loading' || views[n]) return;
+  const card = document.createElement('div'); card.className = 'panel brain';
+  card.innerHTML = `<div class="ph"><h4>Мозг ${n}</h4><span>${brainStatic[sex].n.toLocaleString('ru')} нейронов · ${sex === 'male' ? 'Male CNS' : 'FlyWire'}</span></div><canvas></canvas><div class="stats"></div>`;
+  $('#brains').appendChild(card); const cv = card.querySelector('canvas');
+  views[n] = { card, cv, ctx: cv.getContext('2d'), stats: card.querySelector('.stats'), az: 0, el: .15, zoom: 1, sex };
+  drag(cv, (dx, dy, wh) => { const v = views[n]; v.az += dx * .01; v.el = Math.max(-1.4, Math.min(1.4, v.el + dy * .01)); if (wh) v.zoom *= wh > 0 ? .9 : 1.1; });
 }
 function drawBrain(n, f) {
   const v = views[n], B = brainStatic[v.sex]; if (!B || B === 'loading') return; fit(v.cv);
-  const W = v.cv.width, H = v.cv.height, c = v.ctx; c.fillStyle = css('--brainbg'); c.fillRect(0, 0, W, H);
-  const ca = Math.cos(v.az), sa = Math.sin(v.az), ce = Math.cos(v.el), se = Math.sin(v.el), S = Math.min(W, H) * 0.48 * v.zoom;
+  const W = v.cv.width, H = v.cv.height, c = v.ctx, dpr = devicePixelRatio || 1; c.fillStyle = css('--brain'); c.fillRect(0, 0, W, H);
+  const ca = Math.cos(v.az), sa = Math.sin(v.az), ce = Math.cos(v.el), se = Math.sin(v.el), S = Math.min(W, H) * .5 * v.zoom;
   const P = i => { const x = B.xyz[3 * i], y = B.xyz[3 * i + 1], z = B.xyz[3 * i + 2]; const X = x * ca - z * sa, Z = x * sa + z * ca; return [W / 2 + X * S, H / 2 + (y * ce - Z * se) * S, x]; };
-  c.fillStyle = 'rgba(160,160,180,0.10)'; const st = Math.max(1, Math.floor(B.n / 22000));
-  for (let i = 0; i < B.n; i += st) { const q = P(i); if (!isNaN(q[2])) c.fillRect(q[0], q[1], 1.2, 1.2); }
+  c.fillStyle = 'rgba(170,170,190,.10)'; const st = Math.max(1, Math.floor(B.n / 24000));
+  for (let i = 0; i < B.n; i += st) { const q = P(i); if (!isNaN(q[2])) c.fillRect(q[0], q[1], dpr, dpr); }
   const idx = b64(f.idx, Uint32Array), val = b64(f.val, Uint8Array);
   for (let j = 0; j < idx.length; j++) { const i = idx[j], q = P(i); if (isNaN(q[2])) continue;
-    c.fillStyle = META.region_colors[B.region[i]]; c.globalAlpha = Math.min(1, 0.35 + val[j] / 4);
-    const r = (1.2 + Math.min(2, val[j] / 3)) * (devicePixelRatio || 1) * 0.8; c.fillRect(q[0] - r / 2, q[1] - r / 2, r, r); }
+    c.fillStyle = SCHEMA.region_colors[B.region[i]]; c.globalAlpha = Math.min(1, .35 + val[j] / 4);
+    const r = (1.1 + Math.min(2, val[j] / 3)) * dpr; c.fillRect(q[0] - r / 2, q[1] - r / 2, r, r); }
   c.globalAlpha = 1;
-  const S2 = (k, x) => `<div class="stat">${k}<b>${x}</b></div>`, R = f.rates;
-  v.stats.innerHTML = [S2('Активных нейронов', idx.length.toLocaleString('ru')),
-    S2('Режим', `${f.mode === 'fly' ? 'полёт' : 'ходьба'} · ${f.surface === 'apple' ? 'яблоко' : 'пол'}`),
-    S2('Голод', f.hunger.toFixed(2)), S2('Зоб, мкл', f.crop_ul.toFixed(3)),
-    S2('Хоботок', f.proboscis ? 'ест' : '—'), S2('MN9', R.per + ' Гц'), S2('Песня pIP10', R.song + ' Гц'),
-    S2('P1', R.arousal_P1 + ' Гц'), S2('Готовность DNp37', R.receptive + ' Гц'), S2('Яйцеклад oviDN', (R.ovi ?? 0) + ' Гц'),
-    S2('Спарена', f.mated ? 'да' : 'нет'), S2('Возраст, дн', f.age_d), S2('Память KC→MBON', f.mbon_w_min ?? '—')].join('');
+  const R = f.rates, S2 = (k, x) => `<div class="stat">${k}<b>${x}</b></div>`;
+  v.stats.innerHTML = [S2('Активных нейронов', f.n_active.toLocaleString('ru')),
+    S2('Где', `${f.mode === 'fly' ? 'летит' : 'идёт'} · ${f.surface === 'apple' ? 'яблоко' : 'пол'}`),
+    S2('Голод', f.hunger.toFixed(2)), S2('Зоб, мкл', f.crop_ul.toFixed(3)), S2('Здоровье', f.health.toFixed(2)),
+    S2('Ест (MN9)', `${f.proboscis ? 'да' : 'нет'} · ${R.per}`), S2('Награда PAM', R.pam + ' Гц'), S2('Наказание PPL1', R.ppl1 + ' Гц'),
+    S2('Песня pIP10', R.song + ' Гц'), S2('Возбуждение P1', R.arousal_P1 + ' Гц'), S2('Готовность DNp37', R.receptive + ' Гц'),
+    S2('Яйцеклад oviDN', (R.ovi ?? 0) + ' Гц'), S2('Спарена', f.mated ? 'да' : 'нет'), S2('Память KC→MBON', f.mbon_w_min ?? '—'),
+    S2('Температура', f.temp + ' °C'), S2('Возраст', f.age_d + ' дн')].join('');
 }
+function drawApple() {
+  if (!cur) return; const st = cur.apple.state, N = SCHEMA.apple_norms;
+  const max = { sugar: 13, ethanol: 6, acetic: 6, yeast: 1, aab: 1, mold: 1, patulin: 1 };
+  $('#apple').innerHTML = Object.entries(N).map(([k, [lab, unit, norm]]) => `<div class="stat">${lab}<b>${(+st[k]).toFixed(2)} ${unit}</b>
+    <div class="meter"><i style="width:${Math.min(100, 100 * st[k] / max[k])}%"></i></div><div style="margin-top:4px">${norm}</div></div>`).join('');
+}
+function draw() { drawArena(); drawApple(); if (cur) for (const [n, f] of Object.entries(cur.flies)) if (views[n]) drawBrain(n, f); }
 
-function draw() { drawArena(); if (!cur) return; for (const [n, f] of Object.entries(cur.flies)) if (views[n]) drawBrain(n, f); }
-
+// ---------- polling ----------
 async function poll() {
+  polling = true;
   try {
-    if (!META) META = await (await fetch('/api/meta')).json();
+    const st = await (await fetch('/api/state')).json();
+    $('#status').textContent = st.status;
+    $('#error').classList.toggle('hidden', !st.error); if (st.error) $('#error').textContent = st.error;
     const r = await (await fetch('/api/frames?since=' + next)).json();
-    document.getElementById('conn').textContent = 'идёт расчёт';
-    for (const fr of r.frames) {
-      cur = fr; next = fr.i + 1;
-      for (const [n, f] of Object.entries(fr.flies)) { (trails[n] = trails[n] || []).push(f.pos); if (trails[n].length > 300) trails[n].shift();
-        for (const e of f.events) allEvents.set(n + e[0] + e[1], [fr.clock_h, n, f.sex, e]); }
-    }
+    for (const fr of r.frames) { cur = fr; next = fr.i + 1;
+      for (const [n, f] of Object.entries(fr.flies)) { (trails[n] = trails[n] || []).push(f.pos); if (trails[n].length > 400) trails[n].shift(); } }
     if (cur) {
       for (const [n, f] of Object.entries(cur.flies)) ensureBrain(n, f.sex);
       for (const n of Object.keys(views)) if (!cur.flies[n]) { views[n].card.remove(); delete views[n]; }
-      const d = Math.floor(cur.clock_h / 24), h = (cur.clock_h % 24).toFixed(2);
-      document.getElementById('clock').textContent = `мир: день ${d}, ${h} ч · сессия ${cur.t.toFixed(1)} с`;
-      const b = cur.brood; document.getElementById('brood').textContent = `яйца ${b.egg} · личинки ${b.larva} · куколки ${b.pupa}`;
-      document.getElementById('status').textContent = cur.status;
-      document.getElementById('appleinfo').textContent = cur.apple.summary;
-      document.getElementById('legend').innerHTML = Object.entries(cur.flies).map(([n, f]) => `<span><span class="dot" style="background:${color(f.sex)}"></span>${n}</span>`).join('') +
-        Object.entries(META.region_names).map(([k, v]) => `<span><span class="dot" style="background:${META.region_colors[k]}"></span>${v}</span>`).join('');
-      const ev = [...allEvents.values()].slice(-80).reverse();
-      document.getElementById('log').innerHTML = ev.map(([ch, n, sex, e]) => `д${Math.floor(ch / 24)} ${e[0].toFixed(1)}с <b style="color:${color(sex)}">${n}</b> ${e[1]}`).join('<br>') || 'событий пока нет';
-      draw();
+      $('#day').textContent = `день ${Math.floor(cur.clock_h / 24)} · ${(cur.clock_h % 24).toFixed(1)} ч`;
+      $('#sess').textContent = `${cur.t.toFixed(1)} с`;
+      const b = cur.brood; $('#brood').textContent = `Яйца ${b.egg} · личинки ${b.larva} · куколки ${b.pupa} · вылупилось ${cur.born} · мух с мозгом ${Object.keys(cur.flies).length}`;
+      $('#envinfo').textContent = `O₂ ${cur.env.o2_pct}% · CO₂ ${cur.env.co2_ppm} ppm · ${cur.env.temp_c} °C`;
+      $('#legend').innerHTML = Object.entries(cur.flies).map(([n, f]) => `<span><span class="dot" style="background:${color(f.sex)}"></span>${n}</span>`).join('') +
+        Object.entries(SCHEMA.region_names).map(([k, v]) => `<span><span class="dot" style="background:${SCHEMA.region_colors[k]}"></span>${v}</span>`).join('');
+      const ev = (cur.events || []).slice().reverse();
+      $('#log').innerHTML = ev.map(e => `<div><time>д${Math.floor(e.clock_h / 24)} ${e.t.toFixed(1)} с</time><span><b style="color:${color(e.sex)}">${e.fly}</b> ${e.text}</span></div>`).join('') || '<div>событий пока нет</div>';
+      if (!$('#v-run').classList.contains('hidden')) draw();
     }
-  } catch (e) { document.getElementById('conn').textContent = 'нет связи с сервером'; }
-  setTimeout(poll, 250);
+  } catch (e) { $('#status').textContent = 'нет связи с сервером'; }
+  setTimeout(poll, 300);
 }
-document.getElementById('pause').onclick = async e => { const r = await (await fetch('/api/pause')).json(); e.target.textContent = r.paused ? '▶ Продолжить' : '⏸ Пауза расчёта'; };
-addEventListener('resize', draw);
-poll();
+
+(async () => {
+  SCHEMA = await (await fetch('/api/schema')).json();
+  const st = await (await fetch('/api/state')).json();
+  CFG = st.config; buildForm();
+  if (st.running) { show('run'); }
+  poll();
+  addEventListener('resize', draw);
+})();
 </script>
 </body>
 </html>

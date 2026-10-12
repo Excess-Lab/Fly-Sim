@@ -83,6 +83,7 @@ def malecns_annotations(con: Connectome) -> pd.DataFrame:
         "side": side.to_numpy(),
         "nt": a.consensus_nt.where(~a.consensus_nt.isin([None, "unclear"]), a.predicted_nt
                                    ).fillna("").to_numpy(),
+        "consensus_raw": a.consensus_nt.fillna("").to_numpy(),
         "synonyms": a.synonyms.fillna("").to_numpy(),
         "receptor": a.receptorType.fillna("").to_numpy(),
         "flywire_type": a.flywireType.fillna("").to_numpy(),
@@ -90,9 +91,30 @@ def malecns_annotations(con: Connectome) -> pd.DataFrame:
     })
 
 
+SENSORY_NT = [
+    # photoreceptors release histamine onto HisCl1/ort chloride channels (Hardie 1987; 1989)
+    (r"^(R1-6|R1-R6|R7|R8|R7p|R7y|R7d|R8p|R8y|R8d|R7_unclear|R8_unclear|R7R8_unclear|HBeyelet)", "histamine"),
+    # olfactory, gustatory, thermo/hygro, Johnston's organ and mechanosensory neurons are cholinergic
+    (r"^(ORN_|TRN_|HRN_|JO-|LB\d|LgAG|LgLG|PhG|claw_tpGRN|dorsal_tpGRN|BM_|WG\d|LB$)", "acetylcholine"),
+]
+
+
+def apply_sensory_nt(ann: pd.DataFrame) -> pd.DataFrame:
+    """ASSUMPTION(A03b): transmitter of primary sensory neurons from physiology, not prediction."""
+    t = ann.type.astype(str)
+    nt = ann.nt.to_numpy().astype(object)
+    for pat, val in SENSORY_NT:
+        nt[t.str.match(pat).to_numpy()] = val
+    is_sens = ann.super_class.str.contains("sensory").to_numpy()
+    photo = t.str.match(SENSORY_NT[0][0]).to_numpy()
+    nt[is_sens & ~photo & ~np.isin(nt, ["acetylcholine", "histamine"])] = "acetylcholine"
+    ann["nt"] = nt
+    return ann
+
+
 def _male_nt(male: pd.DataFrame) -> np.ndarray:
-    """Male CNS transmitter: FlyWire resolved transmitter of the matched cell type (known_nt or
-    type consensus) where a match exists, else male type-level majority of consensus_nt."""
+    """Male CNS transmitter: FlyWire resolved transmitter of the matched cell type; else the male's
+    own confident consensus; else the male type majority."""
     fcon = flywire.build()
     fann = flywire_annotations(fcon)
     fw_type_nt = fann[fann.type != ""].groupby("type").nt.agg(lambda x: x.value_counts().index[0])
@@ -100,24 +122,30 @@ def _male_nt(male: pd.DataFrame) -> np.ndarray:
                       np.array([""] * len(male)))
     ft = male.flywire_type.str.split(",").str[0].str.strip()
     matched = ft.map(fw_type_nt)
-    return np.where(matched.notna(), matched, base).astype(object)
+    own = male["consensus_raw"].to_numpy()
+    confident = np.isin(own, ["acetylcholine", "gaba", "glutamate", "histamine", "dopamine",
+                              "serotonin", "octopamine"])
+    # matched FlyWire type (known_nt / type consensus) first: the male's own predictions for some
+    # central types (e.g. AL local neurons) re-created the runaway state; sensory neurons are set
+    # from physiology afterwards (apply_sensory_nt), which fixes the coarse-type problem
+    return np.where(matched.notna(), matched, np.where(confident, own, base)).astype(object)
 
 
 def load(sex: str):
     """Return (Connectome, annotations) for 'female' (FlyWire brain) or 'male' (Male CNS)."""
     if sex == "female":
         con = flywire.build()
-        return con, flywire_annotations(con)
+        return con, apply_sensory_nt(flywire_annotations(con))
     if sex == "male":
         con = malecns.build()
         ann = malecns_annotations(con)
-        cache = flywire.PROCESSED / "malecns_nt_resolved.npy"
+        cache = flywire.PROCESSED / "malecns_nt_resolved_v3.npy"
         if cache.exists():
             ann["nt"] = np.load(cache, allow_pickle=True)
         else:
             ann["nt"] = _male_nt(ann)
             np.save(cache, ann.nt.to_numpy().astype(object), allow_pickle=True)
-        return con, ann
+        return con, apply_sensory_nt(ann)
     raise ValueError(sex)
 
 
