@@ -131,6 +131,8 @@ class Simulation:
         if hz["enabled"]:
             self.world.zones.append(Zone(center=(-35.0, 25.0), radius=float(hz["radius_mm"]),
                                          temp_c=float(hz["temp_c"])))
+            self.world.ethics.declare(self.world, "hot floor zone enabled by the experimenter in "
+                                                  "the web app")
         self.log = EventLog()
         self.frames = []
         self.lock = threading.Lock()

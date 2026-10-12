@@ -64,6 +64,8 @@ def place_avoidance(cond="full", seed=0, t_base=20.0, t_train=30.0, t_test=30.0)
     w.odor_scale = 0.0
     zone = Zone(center=(20.0, 20.0), radius=20.0, temp_c=40.0, active=False)
     w.zones.append(zone)
+    w.ethics.declare(w, "place learning requires an aversive reinforcer; 40 C for 30 s is the "
+                        "mildest heat used in heat-box paradigms (Ofstad et al. 2011)")
     f = Fly(FlyConfig("F", "female", starved_h=0, seed=seed, **CONDITIONS[cond]),
             pos=(-20, -20, 0), yaw=0.8)
     w.flies.append(f)
@@ -101,6 +103,8 @@ def tmaze_choice(cond="full", seed=0, retention_h=(0.0,), t_train=30.0, t_test=3
     w.rebuild_physics()
     A = {"ethyl acetate": 1.0}
     B = {"isoamyl acetate": 1.0}
+    w.ethics.declare(w, "aversive olfactory conditioning needs a punishment; drive capped at "
+                        "60 Hz, 1.25 s pulses (Tully & Quinn 1985 protocol, scaled down)")
     rec = Recorder(w)
     t = 0.0
     # Tully & Quinn 1985: odour A with 12 x 1.25 s shocks over 60 s (one every 5 s), 45 s rest,
@@ -156,6 +160,7 @@ def food_search_after_aversion(cond="full", seed=0, t_naive=40.0, t_train=20.0, 
     w.flies.append(f)
     w.rebuild_physics()
     rec = Recorder(w)
+    w.ethics.declare(w, "testing whether punishment changes food search; capped shock")
     rec.run(t_naive, log_every=10)
     on = lambda x: x["surface"] == "apple"  # noqa: E731
     fr = rec.frames["F"]
@@ -186,6 +191,7 @@ def conflict(starved_h=24, seed=0, t=60.0, ring_temp=34.0):
     """Food vs aversion: fermenting apple surrounded by a warm floor ring. Hungry vs fed."""
     w = World(_apple(2, radius=20.0), arena=60.0)
     w.zones.append(Zone(center=(0.0, 0.0), radius=32.0, temp_c=ring_temp))
+    w.ethics.declare(w, "food-vs-aversion conflict needs a mildly unpleasant barrier (34 C)")
     f = Fly(FlyConfig("F", "female", starved_h=starved_h, seed=seed), pos=(-50, 0, 0), yaw=0.0)
     w.flies.append(f)
     w.rebuild_physics()

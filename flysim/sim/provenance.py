@@ -108,6 +108,9 @@ def manifest(world, protocol: dict) -> dict:
                          "apple_cut": getattr(world.apple, "cut", True),
                          "zones": [vars(z) for z in world.zones]},
          "flies": [fly_provenance(f) for f in world.flies]}
+    eth = getattr(world, "ethics", None)
+    m["ethics"] = eth.report() if eth is not None else None
+    m["aversive_experiment"] = bool(world.zones) or bool(world.shocks)
     modes = {f["mode"] for f in m["flies"]}
     m["mode"] = ("experimental_shortcuts" if "experimental_shortcuts" in modes else
                  "connectome_plus_approximations" if "connectome_plus_approximations" in modes
