@@ -21,9 +21,6 @@ Female (FlyWire brain only) has no VNC: the chain is unavailable and walking use
 import mujoco
 import numpy as np
 import pandas as pd
-import pyarrow.feather as feather
-
-from flysim.data.malecns import ANN
 
 LEGS = ["lf", "lm", "lh", "rf", "rm", "rh"]
 SUB = {"f": "fl", "m": "ml", "h": "hl"}
@@ -47,11 +44,10 @@ GAIN = 0.6
 class MotorChain:
     def __init__(self, fly, arena=None):
         con, ann = fly.brain.con, fly.ann
-        a = feather.read_table(ANN, columns=["bodyId", "subclass", "entryNerve"]).to_pandas() \
-            .set_index("bodyId").reindex(con.ids)
         t = ann.type.to_numpy()
         side = ann.side.to_numpy()
-        sub = a.subclass.fillna("").to_numpy()
+        # unified columns from flysim.data.annotations / banc (fl/ml/hl and ProLN/MesoLN/MetaLN)
+        sub = ann["leg"].fillna("").to_numpy() if "leg" in ann.columns else np.array([""] * len(ann))
         mn = ann.super_class.to_numpy() == "vnc_motor"
         self.groups = {}   # (leg, joint, 'ag'|'an') -> neuron indices
         for leg in LEGS:
@@ -64,7 +60,8 @@ class MotorChain:
         self.jump_mn = np.flatnonzero(jump)
         # proprioceptors
         cc = ann.cell_sub_class.to_numpy()
-        en = a.entryNerve.fillna("").to_numpy()
+        en = ann["entry_nerve"].fillna("").to_numpy() if "entry_nerve" in ann.columns else \
+            np.array([""] * len(ann))
         prop = ann.cell_class.to_numpy() == "mechanosensory_proprioceptive"
         self.prop = {}
         for leg in LEGS:

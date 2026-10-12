@@ -85,6 +85,11 @@ def annotations(con: Connectome, flywire_nt=None, flywire_type_nt=None, male_typ
         sel = np.char.endswith(nerve.astype(str), k)
         leg[sel] = lg
         entry[sel] = en
+    # motor neurons: leg from their exit nerve / neuromere (T1 front, T2 middle, T3 hind)
+    nm = m.neuromere.fillna("").astype(str).str.upper().to_numpy()
+    for tag, lg in (("T1", "fl"), ("T2", "ml"), ("T3", "hl")):
+        sel = (leg == "") & np.char.startswith(nm.astype(str), tag) & (m.super_class.fillna("").to_numpy() == "motor")
+        leg[sel] = lg
     # transmitter: verified > FlyWire match (resolved) > BANC prediction
     nt = m.neurotransmitter_verified.fillna("").astype(str).str.split(",").str[0].str.strip().str.lower()
     pred = m.neurotransmitter_predicted.fillna("").astype(str).str.lower()
@@ -100,6 +105,11 @@ def annotations(con: Connectome, flywire_nt=None, flywire_type_nt=None, male_typ
         ft0 = m.fafb_cell_type.fillna(m.cell_type).map(flywire_type_nt)
         brain = region.isin(["central_brain", "optic_lobe"])
         out = out.where(~(brain & ft0.notna()), ft0)
+    if male_type_nt is not None:
+        vnc = region == "ventral_nerve_cord"
+        mt0 = m.malecns_cell_type.fillna("").astype(str).str.replace("auto:", "").map(male_type_nt)
+        empty0 = out.isna() | (out == "")
+        out = out.where(~(empty0 & vnc & mt0.notna()), mt0)
     empty = out.isna() | (out == "")
     out = out.where(~empty, nt)
     empty = out.isna() | (out == "")
