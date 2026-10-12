@@ -110,8 +110,12 @@ class EventLog:
             E("punish_signal", f"сигнал наказания: PPL1 {s['PPL1_punish_Hz']:.0f} Гц (коррелят, не переживание)")
         if s["PAM_reward_Hz"] > 10 >= p["PAM_reward_Hz"]:
             E("reward_signal", f"сигнал награды: PAM {s['PAM_reward_Hz']:.0f} Гц (коррелят, не переживание)")
-        if p["mbon_w_min"] - s["mbon_w_min"] > 0.01:
-            E("memory", f"память изменилась: KC→MBON min {p['mbon_w_min']:.3f} → {s['mbon_w_min']:.3f}")
+        # memory: report only new lows (lasting depression), in steps of 0.05
+        low = getattr(f, "_mem_low", 1.0)
+        if s["mbon_w_min"] < low - 0.05:
+            E("memory", f"память усилилась: самый ослабленный синапс KC→MBON {s['mbon_w_min']:.2f} "
+              f"(1 = исходно)")
+            f._mem_low = s["mbon_w_min"]
         if s["P1_arousal_Hz"] > 15 >= p["P1_arousal_Hz"]:
             E("arousal", f"возбуждение P1 {s['P1_arousal_Hz']:.0f} Гц")
         if s["wing"] > 0.3 >= p["wing"]:

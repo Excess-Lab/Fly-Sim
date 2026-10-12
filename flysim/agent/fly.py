@@ -26,7 +26,7 @@ class FlyConfig:
     us_reward_shortcut: bool = True
     spontaneous: bool = True
     seed: int = 0
-    body: str = "nmf"   # "nmf" (NeuroMechFly physics) or "simple" (fast reduced body)
+    body: str = "simple"  # "nmf" (NeuroMechFly physics, web app) or "simple" (fast, experiment series)
 
 
 class Fly:
@@ -54,12 +54,6 @@ class Fly:
         # contact pheromone neurons (male: ppk23 receptor class) ASSUMPTION(A57)
         rec = ann["receptor"] if "receptor" in ann.columns else pd.Series([""] * len(ann))
         self.ppk23 = np.flatnonzero((rec == "putative_ppk23").to_numpy())
-        self.stim_idx = np.concatenate([
-            self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
-            self.intero.idx, self.ppk23, self.ppl1, self.pam, self.noci_idx]).astype(np.int64)
-        self.brain.set_poisson_targets(np.concatenate([
-            self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
-            self.intero.idx, self.ppk23, self.noci_idx]))
         # leg nociceptor candidates per leg (male VNC only). ASSUMPTION(A80): adult leg
         # nociception (noxious heat >~40 C; TrpA1/painless md neurons) has no annotated class;
         # the 'unknown_sensory' neurons entering through each leg nerve are used as candidates.
@@ -76,6 +70,12 @@ class Fly:
                 self.leg_noci[leg] = np.flatnonzero(m)
         self.noci_idx = np.concatenate(list(self.leg_noci.values())).astype(np.int64) if self.leg_noci \
             else np.zeros(0, np.int64)
+        self.stim_idx = np.concatenate([
+            self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
+            self.intero.idx, self.ppk23, self.ppl1, self.pam, self.noci_idx]).astype(np.int64)
+        self.brain.set_poisson_targets(np.concatenate([
+            self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
+            self.intero.idx, self.ppk23, self.noci_idx]))
         self.motor = MotorReadout(ann)
         from flysim.agent.physics import BodyTemperature
         self.thermal = BodyTemperature(25.0)
