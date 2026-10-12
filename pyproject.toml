@@ -9,10 +9,10 @@ dependencies = [
     "pandas",
     "pyarrow",
     "numba",
-    "brian2",
-    "matplotlib",
-    "pytest",
 ]
+
+[project.optional-dependencies]
+validate = ["brian2", "matplotlib", "pytest"]
 
 [tool.setuptools.packages.find]
 include = ["flysim*"]

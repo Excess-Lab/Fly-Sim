@@ -1,7 +1,15 @@
 .venv/
 __pycache__/
 *.pyc
-data/raw/
+data/raw/*
+!data/raw/odor/
+data/raw/odor/*
+!data/raw/odor/orn_responses_sfr_subtracted.csv
+!data/raw/odor/orn_responses.csv
+!data/raw/odor/receptor_glomerulus_map.csv
+!data/raw/odor/hallem_carlson.csv
+!data/raw/odor/README.md
 data/processed/
 results/
 .DS_Store
+.claude/

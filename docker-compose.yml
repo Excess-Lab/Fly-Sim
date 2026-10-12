@@ -1,0 +1,12 @@
+services:
+  flysim:
+    build: .
+    image: flysim:latest
+    ports:
+      - "8800:8800"
+    volumes:
+      # connectome data (~0.7 GB, downloaded on first start) and caches stay on your disk
+      - ./data:/app/data
+    environment:
+      - NUMBA_NUM_THREADS=6
+    restart: unless-stopped

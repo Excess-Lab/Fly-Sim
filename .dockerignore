@@ -1,0 +1,10 @@
+.venv
+.git
+results
+data/processed
+data/raw/malecns
+data/raw/annotations
+data/raw/*.parquet
+data/raw/*.csv
+data/raw/odor/door
+**/__pycache__
