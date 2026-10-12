@@ -20,7 +20,7 @@ def test_silent_without_input():
 def test_synaptic_delay_and_drive():
     b = Brain(tiny(200))
     b.v[0] = -44.0  # above threshold: neuron 0 spikes on step 0
-    _, rast = b.run(20.0, record=[0, 1])
+    _, rast = b.step(200, record=[0, 1])
     t0 = np.flatnonzero(rast[:, 0])[0]
     t1 = np.flatnonzero(rast[:, 1])[0]
     delay_steps = round(LIFParams().t_dly / LIFParams().dt)
@@ -31,7 +31,7 @@ def test_synaptic_delay_and_drive():
 def test_inhibition_prevents_spike():
     b = Brain(tiny(-200))
     b.v[0] = -44.0
-    counts, _ = b.run(20.0)
+    counts, _ = b.step(200)
     assert counts[1] == 0
 
 
@@ -40,7 +40,7 @@ def test_psp_matches_analytic_solution():
     p = LIFParams()
     b = Brain(tiny(1))
     b.g[1] = 1.0
-    b.run(5.0)
+    b.step(50)
     t = 5.0
     a = 1.0 * p.tau / (p.tau - p.t_mbr)
     expected = p.v_0 + a * (np.exp(-t / p.tau) - np.exp(-t / p.t_mbr))
