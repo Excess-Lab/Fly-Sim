@@ -122,6 +122,10 @@ SCHEMA = {
                       "step": 5, "default": 60, "norm": "~×0.1 от реального времени на M2"},
         "ff_hours": {"label": "Перемотка между сессиями", "unit": "ч", "min": 0, "max": 72,
                      "step": 1, "default": 24, "norm": "0 — без перемотки"},
+        "limit_days": {"label": "Лимит мирового времени", "unit": "дн", "min": 0, "max": 3650, "step": 1,
+                       "default": 0, "norm": "0 — без лимита; симуляция остановится сама, когда мир проживёт столько"},
+        "limit_compute_h": {"label": "Лимит времени счёта", "unit": "ч", "min": 0, "max": 72, "step": 0.5,
+                            "default": 0, "norm": "0 — без лимита; сколько реальных часов считать"},
         "max_adults": {"label": "Макс. мух с мозгом", "unit": "", "min": 1, "max": 30, "step": 1,
                        "default": 4, "norm": "~0.4 ГБ памяти и ~10 с счёта на 1 с жизни на муху; "
                                              "на Mac 8 ГБ разумно ≤4–6"},
@@ -187,6 +191,9 @@ class Simulation:
             self.world.zones.append(Zone(center=(-35.0, 25.0), radius=float(hz["radius_mm"]),
                                          temp_c=float(hz["temp_c"])))
         self.log = EventLog()
+        from flysim.sim.chronicle import Chronicle
+        self.chron = Chronicle(meta={"title": "Свободная симуляция", "config": cfg})
+        self.run_id = self.chron.run_id
         self.frames = []
         self.lock = threading.Lock()
         self.stop_flag = False
@@ -238,90 +245,47 @@ class Simulation:
         return f
 
     def snapshot(self, t_session):
+        from flysim.sim.chronicle import make_frame
         w = self.world
         counts = {f.cfg.name: f.pop_counts() for f in w.flies}
+        n_ev = len(self.log.events)
+        self.log.frame_idx = self.chron.n
         self.log.frame(w, t_session, counts)
-        s = w.apple.s
-        col, light = _apple_colors(vars(s))
-        fr = {"i": len(self.frames), "t": round(t_session, 2), "clock_h": round(w.clock_h, 4),
-              "apple": {"summary": w.apple.summary(), "color": col, "color_light": light,
-                        "center": w.apple.center.tolist(), "radius": w.apple.p.radius_mm,
-                        "state": {k: round(float(getattr(s, k)), 4) for k in APPLE_NORMS},
-                        "mold": round(float(s.mold), 3)},
-              "apples": [dict(zip(("color", "color_light"), _apple_colors(vars(a.s))),
-                              center=a.center.tolist(), radius=a.p.radius_mm, mold=round(float(a.s.mold), 3),
-                              summary=a.summary(), cut=bool(getattr(a, "cut", True)),
-                              state={k: round(float(getattr(a.s, k)), 4) for k in APPLE_NORMS})
-                         for a in w.apples],
-              "arena_mm": w.arena,
-              "plants": w.plants.summary() if w.plants else None,
-              "env": {"o2_pct": round(w.o2_pct, 2), "co2_ppm": round(w.co2_ppm), "temp_c": round(w.ambient_c, 1)},
-              "zones": [{"center": z.center, "radius": z.radius, "temp_c": z.temp_c} for z in w.zones],
-              "brood": w.population.counts(w.clock_h), "born": w.population.born,
-              "status": self.status, "flies": {}}
-        for f in w.flies:
-            c = counts[f.cfg.name]
-            nz = np.flatnonzero(c)
-            if len(nz) > MAX_ACTIVE:
-                nz = nz[np.argsort(c[nz])[-MAX_ACTIVE:]]
-            b, r = f.body, f.motor.rate
-            fr["flies"][f.cfg.name] = {
-                "sex": f.cfg.sex, "pos": [round(float(v), 2) for v in b.pos], "yaw": round(float(b.yaw), 3),
-                "mode": b.mode, "surface": b.surface, "proboscis": bool(b.proboscis),
-                "wing": round(float(b.wing_ext), 2), "hunger": round(f.meta.hunger, 3),
-                "energy": round(f.meta.energy, 3), "crop_ul": round(f.meta.crop_ul, 3),
-                "health": round(f.meta.health, 3), "temp": round(float(getattr(f, "last_temp", 25.0)), 1),
-                "mated": f.mated, "copulating": f.copulating, "age_d": round(f.age_d, 2),
-                "rates": {k: round(float(v), 1) for k, v in r.items()},
-                "valence": round(r.get("pam", 0.0) - r.get("ppl1", 0.0), 1),
-                "mbon_w_min": round(float(f.brain.kc_mbon_strength().min()), 3) if f.brain.pl_on else None,
-                "n_active": int(np.count_nonzero(c)),
-                "schema": f.schema.summary(),
-                "dataset": f.dataset_name,
-                "mode": __import__("flysim.sim.provenance", fromlist=["mechanism_mode"]).mechanism_mode(f.cfg),
-                "idx": b64(nz.astype(np.uint32)), "val": b64(np.minimum(c[nz], 255).astype(np.uint8)),
-            }
-        fr["events"] = self.log.events[-60:]
+        self.chron.note_events(self.log.events[n_ev:])
+        fr = make_frame(w, t_session, counts, self.log, self.status, index=self.chron.n)
+        fr["run_id"] = self.run_id
+        self.chron.add(dict(fr))
         with self.lock:
             self.frames.append(fr)
-            if len(self.frames) > 3000:
-                self.frames = self.frames[-3000:]
+            if len(self.frames) > 600:
+                self.frames = self.frames[-600:]
 
     def fast_forward(self, hours):
         w = self.world
         self.status = f"перемотка {hours:.0f} ч: яблоко бродит и плесневеет, яйца развиваются"
         pop = w.population
         t0 = w.clock_h
-        anoxic_h = {f.cfg.name: 0.0 for f in w.flies}
-        # air and fruit evolve together; track hours of anoxia for each fly (A91)
+        # the world and every fly live through the interval hour by hour (air, fruit, plants,
+        # metabolism, ageing and death happen together)
         left = hours
-        while left > 1e-9:
+        while left > 1e-9 and w.alive():
             h = min(1.0, left)
             w.advance_hours(h)
-            if w.o2_pct < 1.0:
-                for f in w.flies:
-                    anoxic_h[f.cfg.name] += h
+            for f in w.flies:
+                f.pass_time(h, w, fed_from_fruit=True)
+            w.bury_dead()
             left -= h
+        if left > 1e-9:            # no flies and no brood: let the rest of the world go on
+            w.advance_hours(left)
         ready = pop.fast_forward(t0, hours, w.apples, w.flies)
-        if w.plants is not None and w.flies:
+        if w.plants is not None:
             for te, text in w.plants.events:
-                self.log._ev(w, w.flies[0], 0.0, "plant", text)
+                self.log.events.append({"id": len(self.log.events), "clock_h": round(te, 4), "t": 0.0,
+                                        "session": self.log.session, "frame": self.chron.n, "fly": "мир",
+                                        "sex": "", "type": "plant", "cat": "world", "imp": 2,
+                                        "text": text, "others": [], "pos": None, "data": {}})
             w.plants.events.clear()
-        for f in w.flies:
-            f.pass_time(hours, w, fed_from_fruit=True)
-        for f in list(w.flies):
-            cause = None
-            if f.age_d > pop.lifespan_d * (0.3 + 0.7 * f.meta.health):  # A72
-                cause = "старость" + (" (ускорена токсином плесени)" if f.meta.health < 0.9 else "")
-            elif getattr(f, "starving_h", 0.0) > 48:
-                cause = "голод"
-            elif anoxic_h.get(f.cfg.name, 0.0) > 4:   # A91: flies recover from <~4 h of anoxia
-                cause = "нехватка кислорода"
-            elif getattr(f, "cold_h", 0.0) > 72:      # A93: prolonged chill injury
-                cause = "холод"
-            if cause:
-                w.flies.remove(f)
-                self.log._ev(w, f, 0.0, "death", f"погибла: {cause}, возраст {f.age_d:.1f} дн")
+        self.log.world_events(w, 0.0)
         for b in ready:
             b.alive = False
             pop.born += 1  # eclosed adults (with or without a simulated brain)
@@ -357,12 +321,26 @@ class Simulation:
         if added:
             self.world.rebuild_physics()
 
+    def limit_reached(self) -> str | None:
+        run = self.cfg["run"]
+        if float(run.get("limit_days", 0)) > 0 and self.world.clock_h >= float(run["limit_days"]) * 24:
+            return f"достигнут лимит мирового времени ({run['limit_days']} дн)"
+        if float(run.get("limit_compute_h", 0)) > 0 and \
+                time.time() - self.started >= float(run["limit_compute_h"]) * 3600:
+            return f"достигнут лимит времени счёта ({run['limit_compute_h']} ч)"
+        return None
+
     def run(self):
         try:
             run = self.cfg["run"]
             session = 0
             while not self.stop_flag:
+                lim = self.limit_reached()
+                if lim:
+                    self.status = lim
+                    break
                 session += 1
+                self.log.session = session
                 self.status = f"сессия {session}: считаются все нейроны"
                 t, k = 0.0, 0
                 per = int(round(FRAME_DT / 0.01))
@@ -385,14 +363,21 @@ class Simulation:
                         self.world.physics_dirty = False
                         self.world.rebuild_physics()
                     self.snapshot(0.0)
-                if not self.world.flies:
-                    self.status = "все мухи погибли"
+                if not self.world.alive():
+                    self.status = "жизнь в мире прекратилась: не осталось ни мух, ни потомства"
                     self.snapshot(0.0)
                     break
-            self.status = "остановлено"
+            if not self.limit_reached():
+                self.status = "остановлено"
         except Exception as e:  # surface errors in the UI instead of dying silently
             self.error = f"{e}\n{traceback.format_exc()}"
             self.status = "ошибка: " + str(e)
+        finally:
+            try:
+                self.snapshot(0.0)
+                self.chron.save_logs(self.log, self.manifest())
+            except Exception:
+                pass
 
     def manifest(self) -> dict:
         from flysim.sim.provenance import manifest
@@ -532,6 +517,48 @@ def make_handler(app: App):
                     base = sim.frames[0]["i"] if sim.frames else 0
                     out = sim.frames[max(0, since - base):][:30]
                 return self._json({"frames": out})
+            if u.path == "/api/runs":
+                from flysim.sim.chronicle import list_runs
+                return self._json({"current": sim.run_id if sim else None, "runs": list_runs()})
+            if u.path.startswith("/api/run/"):
+                parts = u.path.split("/")      # /api/run/<id>/<what>
+                rid, what = parts[3], parts[4] if len(parts) > 4 else "info"
+                src = sim.chron if (sim and rid == sim.run_id) else None
+                if src is None:
+                    from flysim.sim.chronicle import RUNS, SavedRun
+                    if not (RUNS / rid / "frames.jsonl").exists():
+                        self.send_response(404)
+                        self.end_headers()
+                        return
+                    src = SavedRun(RUNS / rid)
+                    events = src.events()
+                else:
+                    events = sim.log.events
+                if what == "frame":
+                    return self._json(src.read(int(q.get("i", ["0"])[0])) or {})
+                if what == "events":
+                    mi = int(q.get("min_imp", ["1"])[0])
+                    cat = q.get("cat", [""])[0]
+                    fly = q.get("fly", [""])[0]
+                    ev = [e for e in events if e.get("imp", 1) >= mi and (not cat or e.get("cat") == cat)
+                          and (not fly or e.get("fly") == fly or fly in e.get("others", []))]
+                    return self._json({"events": ev[-3000:]})
+                if what == "info":
+                    from flysim.sim.eventlog import CATEGORY_RU
+                    cnt, flies, bio = {}, {}, {}
+                    for e in events:
+                        cnt[e.get("cat", "info")] = cnt.get(e.get("cat", "info"), 0) + 1
+                        if e.get("fly") and e["fly"] != "мир":
+                            flies[e["fly"]] = e.get("sex", "")
+                            if e.get("imp", 1) >= 2:
+                                bio.setdefault(e["fly"], []).append(e)
+                    first = src.read(0) or {}
+                    last = src.read(src.n - 1) or {}
+                    return self._json({"run_id": rid, "n_frames": src.n, "counts": cnt,
+                                       "category_names": CATEGORY_RU, "flies": flies,
+                                       "biographies": {k: v[-80:] for k, v in bio.items()},
+                                       "clock_h": [first.get("clock_h", 0), last.get("clock_h", 0)],
+                                       "live": bool(sim and rid == sim.run_id and not sim.stop_flag)})
             if u.path.startswith("/api/logs/") and sim:
                 name = u.path.rsplit("/", 1)[1]
                 stamp = time.strftime("%Y%m%d-%H%M")

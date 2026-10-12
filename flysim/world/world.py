@@ -37,11 +37,35 @@ class World:
     seasonal: bool = False      # temperate annual temperature cycle (A93)
     base_temp_c: float = 25.0
     max_apples: int = 8         # performance cap for fruit produced by trees
+    corpses: list = field(default_factory=list)   # dead flies stay where they died
+    deaths: list = field(default_factory=list)    # (clock_h, name, sex, cause, pos)
 
     def __post_init__(self):
         if not self.apples:
             self.apples = [self.apple]
         self.apple = self.apples[0]
+
+    def bury_dead(self):
+        dead = [f for f in self.flies if f.dead]
+        for f in dead:
+            self.flies.remove(f)
+            rec = {"clock_h": round(self.clock_h, 4), "name": f.cfg.name, "sex": f.cfg.sex,
+                   "cause": f.dead, "pos": [round(float(v), 1) for v in f.body.pos],
+                   "age_d": round(f.age_d, 1)}
+            self.corpses.append(rec)
+            self.deaths.append(rec)
+        if dead and self.arena_phys is not None:
+            self.rebuild_physics()
+        return dead
+
+    def alive(self) -> bool:
+        """Is there still life: adult flies or developing brood."""
+        if self.flies:
+            return True
+        pop = getattr(self, "population", None)
+        if pop is not None and sum(pop.counts(self.clock_h).values()) > 0:
+            return True
+        return False
 
     def nearest_apple(self, x):
         return min(self.apples, key=lambda a: np.linalg.norm(np.asarray(x) - a.center) - a.p.radius_mm)
@@ -231,6 +255,7 @@ class World:
                 if f.cfg.body == "nmf":
                     f.body.sync()
         self.interactions(dt)
+        self.bury_dead()
         if self.atm is not None:
             self.atm.step(dt / 3600, self.apples, len(self.flies), self.ambient_c)
             self.sync_air()

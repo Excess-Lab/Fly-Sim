@@ -12,6 +12,25 @@ import numpy as np
 
 HUNGER_LEVELS = (0.25, 0.5, 0.75)
 
+# event type -> (category, importance 1..3)
+EVENT_META = {
+    "start": ("info", 1), "location": ("movement", 1), "takeoff": ("movement", 1),
+    "landing": ("movement", 1), "feeding_start": ("feeding", 1), "feeding_stop": ("feeding", 1),
+    "heat_on": ("distress", 2), "heat_off": ("distress", 1), "hunger": ("info", 1),
+    "starving": ("distress", 2), "punish_signal": ("distress", 2),
+    "distress_sustained": ("distress", 3), "reward_signal": ("reward", 1), "memory": ("memory", 2),
+    "arousal": ("social", 1), "song_start": ("courtship", 2), "chase": ("courtship", 2),
+    "escape": ("distress", 2), "smell": ("info", 1), "touch": ("social", 1),
+    "encounter": ("fight", 2), "lunge": ("fight", 3), "copulation": ("mating", 3),
+    "egg": ("mating", 2), "birth": ("life", 3), "death": ("life", 3), "injury": ("life", 2),
+    "cold_coma": ("distress", 2), "anoxia": ("distress", 3), "behaviour": ("social", 1),
+    "apple": ("world", 2), "air": ("world", 2), "plant": ("world", 2), "info": ("info", 1),
+}
+CATEGORY_RU = {"fight": "драки", "courtship": "ухаживание", "mating": "спаривание и яйца",
+               "life": "рождения и смерти", "feeding": "кормление", "distress": "дистресс (корреляты)",
+               "reward": "награда (корреляты)", "memory": "память", "movement": "перемещения",
+               "social": "контакты", "world": "мир", "info": "прочее"}
+
 TS_FIELDS = ["clock_h", "t", "fly", "sex", "x", "y", "z", "yaw", "mode", "surface", "proboscis",
              "wing", "copulating", "mated", "hunger", "energy", "crop_ul", "temp",
              "smell_strongest", "smell_conc", "taste_sugar", "taste_ethanol", "taste_acid",
@@ -36,11 +55,48 @@ class EventLog:
         self.rows = []
         self.apple_rows = []
         self.prev = {}
+        self.frame_idx = 0
+        self.session = 0
+        self._world_state = {}
 
     # ------------------------------------------------------------------
-    def _ev(self, w, f, t, kind, text, **data):
-        self.events.append({"clock_h": round(w.clock_h, 5), "t": round(t, 3), "fly": f.cfg.name,
-                            "sex": f.cfg.sex, "type": kind, "text": text, "data": data})
+    def _ev(self, w, f, t, kind, text, others=(), **data):
+        cat, imp = EVENT_META.get(kind, ("info", 1))
+        name, sex = (f.cfg.name, f.cfg.sex) if f is not None else ("мир", "")
+        pos = [round(float(v), 1) for v in f.body.pos] if f is not None else None
+        self.events.append({"id": len(self.events), "clock_h": round(w.clock_h, 5), "t": round(t, 3),
+                            "session": self.session, "frame": self.frame_idx, "fly": name, "sex": sex,
+                            "type": kind, "cat": cat, "imp": imp, "text": text,
+                            "others": list(others), "pos": pos, "data": data})
+
+    def world_events(self, w, t):
+        """Events of the world itself: apple stages, air alarms."""
+        st = self._world_state
+        for k, a in enumerate(w.apples):
+            s = a.s
+            stage = ("плесень видна" if s.mold > 0.05 else "уксус" if s.acetic > 1.0 else
+                     "спиртовое" if (s.sugar < 1.0 and s.ethanol > 2.0) else
+                     "брожение" if s.ferm_rate > 0.05 else "свежее")
+            key = f"apple{k}"
+            if st.get(key) != stage:
+                if key in st:
+                    self._ev(w, None, t, "apple", f"яблоко {k + 1}: {st[key]} → {stage}", apple=k)
+                st[key] = stage
+        seen = st.get("deaths", 0)
+        for d in getattr(w, "deaths", [])[seen:]:
+            self.events.append({"id": len(self.events), "clock_h": d["clock_h"], "t": round(t, 3),
+                                "session": self.session, "frame": self.frame_idx, "fly": d["name"],
+                                "sex": d["sex"], "type": "death", "cat": "life", "imp": 3,
+                                "text": f"погибла: {d['cause']} (возраст {d['age_d']} дн)",
+                                "others": [], "pos": d["pos"], "data": {"cause": d["cause"]}})
+        st["deaths"] = len(getattr(w, "deaths", []))
+        co2_lvl = 2 if w.co2_ppm > 20000 else 1 if w.co2_ppm > 5000 else 0
+        o2_lvl = 2 if w.o2_pct < 5 else 1 if w.o2_pct < 15 else 0
+        for key, lvl, txt in (("co2", co2_lvl, f"CO₂ в воздухе {w.co2_ppm / 1e4:.2f} %"),
+                              ("o2", o2_lvl, f"O₂ в воздухе {w.o2_pct:.1f} %")):
+            if lvl > st.get(key, 0):
+                self._ev(w, None, t, "air", f"тревога: {txt}")
+            st[key] = lvl
 
     def frame(self, w, t, counts_by_fly=None):
         for f in w.flies:
@@ -99,6 +155,7 @@ class EventLog:
             self.rows.append(s)
             self._events_for(w, f, t, s, self.prev.get(f.cfg.name))
             self.prev[f.cfg.name] = s
+        self.world_events(w, t)
         pc = w.population.counts(w.clock_h) if getattr(w, "population", None) else {}
         for k, a in enumerate(w.apples):
             src = a.odor_sources()
@@ -119,7 +176,59 @@ class EventLog:
         E = lambda kind, text, **d: self._ev(w, f, t, kind, text, **d)  # noqa: E731
         if p is None:
             E("start", f"начало наблюдения: голод {s['hunger']:.2f}, {s['surface']}")
+            if getattr(f, "schema", None) is not None and f.schema.injured():
+                hurt = {k: v for k, v in f.schema.legs.items() if v != "intact"}
+                E("injury", f"травма (задана экспериментатором): ноги {hurt}, крылья "
+                            f"{f.schema.wing_damage}, усики {f.schema.antenna}, глаза {f.schema.eye}")
             return
+        dt = max(s["t"] - p["t"], 1e-3)
+        if s["mode"] == "fly" and p["mode"] != "fly":
+            E("takeoff", "взлетела")
+        if p["mode"] == "fly" and s["mode"] != "fly":
+            E("landing", f"приземлилась: {'яблоко' if s['surface'] == 'apple' else 'пол'}")
+        # sustained punishment-related activity (neural correlate of distress, >=3 s)
+        f._ppl1_s = (getattr(f, "_ppl1_s", 0.0) + dt) if s["PPL1_punish_Hz"] > 20 else 0.0
+        if f._ppl1_s >= 3.0 and not getattr(f, "_distress_flag", False):
+            E("distress_sustained", f"длительный сигнал наказания ≥3 с (PPL1 {s['PPL1_punish_Hz']:.0f} Гц; "
+                                    f"нейронный коррелят, не измерение переживания)")
+            f._distress_flag = True
+        if f._ppl1_s == 0.0:
+            f._distress_flag = False
+        if s["energy"] <= 0.0 < p["energy"]:
+            E("starving", "энергия на нуле — истощение")
+        chill = f._chill() if hasattr(f, "_chill") else 1.0
+        if chill < 0.2 and not getattr(f, "_coma", False):
+            E("cold_coma", f"холодовая кома (тело {s['body_temp_c']} °C)")
+            f._coma = True
+        elif chill > 0.5:
+            f._coma = False
+        if w.o2_pct < 2.0 and not getattr(f, "_anox", False):
+            E("anoxia", f"ступор от нехватки кислорода (O₂ {w.o2_pct:.1f} %)")
+            f._anox = True
+        elif w.o2_pct > 3.0:
+            f._anox = False
+        # social detectors
+        for o in w.flies:
+            if o is f:
+                continue
+            d = np.asarray(o.body.pos) - np.asarray(f.body.pos)
+            dist = float(np.linalg.norm(d))
+            facing = float(np.dot(d[:2], f.body.heading()[:2]) / max(dist, 1e-6))
+            key = f"_near_{o.cfg.name}"
+            if f.cfg.sex == "male" and o.cfg.sex == "female":
+                chasing = dist < 5.0 and facing > 0.6 and f.body.mode == o.body.mode == "walk"
+                ts = (getattr(f, key, 0.0) + dt) if chasing else 0.0
+                setattr(f, key, ts)
+                if ts >= 2.0 and not getattr(f, key + "_ev", False):
+                    E("chase", f"преследует {o.cfg.name} ≥2 с (ухаживание?)", others=[o.cfg.name])
+                    setattr(f, key + "_ev", True)
+                if ts == 0.0:
+                    setattr(f, key + "_ev", False)
+            if f.cfg.sex == "male" and o.cfg.sex == "male" and f.cfg.name < o.cfg.name:
+                close = dist < 3.0 and (f.cmd.get("arousal", 0) > 0.3 or o.cmd.get("arousal", 0) > 0.3)
+                if close and not getattr(f, key + "_enc", False):
+                    E("encounter", f"стычка с {o.cfg.name} (близко, P1 возбуждён)", others=[o.cfg.name])
+                setattr(f, key + "_enc", close)
         if (p["mode"], p["surface"]) != (s["mode"], s["surface"]):
             what = {("walk", "apple"): "на яблоке", ("walk", "floor"): "на полу", ("fly", "floor"): "в полёте",
                     ("fly", "apple"): "в полёте"}[(s["mode"], s["surface"])]
@@ -163,7 +272,13 @@ class EventLog:
         for te, e in f.events[seen:]:
             if "->(" in e:
                 continue
-            E("behaviour", e)
+            kind = ("lunge" if e.startswith("lunge->") else "copulation" if e.startswith("copulation")
+                    else "egg" if "egg" in e else "behaviour")
+            txt = {"lunge": f"выпад на {e.split('->')[-1]}", "copulation": f"спаривание ({e})",
+                   "egg": "отложила яйцо" if e == "laid egg" else e}.get(kind, e)
+            if e.startswith("lunged_by"):
+                continue
+            E(kind, txt, others=[e.split("->")[-1].split("<-")[-1]] if "->" in e or "<-" in e else [])
         f._events_logged = len(f.events)
 
     # ------------------------------------------------------------------
@@ -172,7 +287,13 @@ class EventLog:
 
     def events_text(self) -> str:
         return "\n".join(f"[д{int(e['clock_h'] // 24)} {e['clock_h'] % 24:6.3f} ч | {e['t']:7.2f} с] "
-                         f"{e['fly']:>8}: {e['text']}" for e in self.events) + "\n"
+                         f"{'!' * e.get('imp', 1):3s} {e['fly']:>8}: {e['text']}" for e in self.events) + "\n"
+
+    def counts(self) -> dict:
+        c = {}
+        for e in self.events:
+            c[e["cat"]] = c.get(e["cat"], 0) + 1
+        return c
 
     def _csv(self, rows, fields) -> str:
         buf = io.StringIO()

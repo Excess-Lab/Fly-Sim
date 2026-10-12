@@ -12,15 +12,29 @@ KEY_RATES = ["fwd", "back", "turn_DNa02", "gf", "takeoff", "flight_power", "land
 
 
 class Recorder:
-    def __init__(self, world, frame_dt: float = 0.05):
+    def __init__(self, world, frame_dt: float = 0.05, title: str = "эксперимент"):
+        from flysim.sim.chronicle import Chronicle
         self.world = world
         self.frame_dt = frame_dt
+        self.chron = Chronicle(run_id=f"{time.strftime('%Y%m%d-%H%M%S')}-{abs(hash(title)) % 10000:04d}",
+                               meta={"title": title})
+        self._chron_every = max(1, int(round(0.1 / frame_dt)))   # chronicle at 10 frames/s
+        self._k = 0
         self.frames = {f.cfg.name: [] for f in world.flies}
         self.spikes = {f.cfg.name: [] for f in world.flies}  # per frame: (idx uint32, cnt uint16)
         self.log = EventLog()
 
     def snap(self, t):
+        from flysim.sim.chronicle import make_frame
+        n_ev = len(self.log.events)
+        self.log.frame_idx = self.chron.n
         self.log.frame(self.world, t, {f.cfg.name: f.counts_acc for f in self.world.flies})
+        self.chron.note_events(self.log.events[n_ev:])
+        self._k += 1
+        if self._k % self._chron_every == 0:
+            fr = make_frame(self.world, t, {f.cfg.name: f.counts_acc.copy() for f in self.world.flies},
+                            self.log, index=self.chron.n)
+            self.chron.add(fr)
         for f in self.world.flies:
             b = f.body
             mb = f.brain.kc_mbon_strength() if f.brain.pl_on else np.ones(1)
@@ -82,6 +96,10 @@ class Recorder:
         (out_dir / "run.json").write_text(json.dumps(info, default=float, indent=1))
         (out_dir / "frames.json").write_text(json.dumps(self.frames))
         self.log.save(out_dir)
+        title = (meta or {}).get("experiment", "эксперимент")
+        (self.chron.dir / "meta.json").write_text(json.dumps({"title": title, "meta": meta or {}},
+                                                             ensure_ascii=False, default=str))
+        self.chron.save_logs(self.log, man)
         for name, fr in self.spikes.items():
             lens = np.array([len(i) for i, _ in fr], np.int64)
             np.savez_compressed(out_dir / f"spikes_{name}.npz", lens=lens,

@@ -96,6 +96,10 @@ class Fly:
         self.motor = MotorReadout(ann)
         from flysim.agent.physics import BodyTemperature
         self.thermal = BodyTemperature(25.0)
+        from flysim.agent.mortality import Mortality
+        self.mortality = Mortality(np.random.default_rng(cfg.seed + 7919))
+        self.mortality.bio_age_d = 3.0
+        self.dead = None   # cause of death once dead
         self.meta = Metabolism.starved(cfg.starved_h)
         self.body = Body(pos=np.array(pos, float), yaw=yaw, rng=np.random.default_rng(cfg.seed))
         self.counts_acc = np.zeros(con.n, np.int32)
@@ -259,6 +263,10 @@ class Fly:
         dose = nut["patulin"] * self.meta.p.ingest_nl_per_s * 1e-3 * dt / self.meta.p.meal_volume_ul \
             if on_food else 0.0
         self.meta.ingest_toxin(dose, dt)
+        cause = self.mortality.step(dt, self.meta.energy, self.thermal.T, world.ambient_c,
+                                    world.o2_pct, self.meta.health)
+        if cause and self.dead is None:
+            self.dead = cause
         now = (self.body.mode, self.body.surface, self.body.proboscis)
         if now != was:
             self.events.append((round(self.t, 3), f"{was}->{now}"))
@@ -286,8 +294,12 @@ class Fly:
                 m.ingest_toxin(patulin, 0.0)
             m.step(3600.0 * dt_h)
             m.ingest_toxin(0.0, 3600.0 * dt_h)
-            self.cold_h = (getattr(self, "cold_h", 0.0) + dt_h) if world.ambient_c < 5.0 else 0.0
-            self.starving_h = (getattr(self, "starving_h", 0.0) + dt_h) if m.energy <= 0.0 else 0.0
+            self.thermal.T = world.ambient_c
+            cause = self.mortality.step(3600.0 * dt_h, m.energy, world.ambient_c, world.ambient_c,
+                                        world.o2_pct, m.health)
+            if cause:
+                self.dead = cause
+                break
         self.brain.forget(hours * 3600)
         self.age_d += hours / 24
         self.copulating = False
