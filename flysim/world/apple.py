@@ -35,6 +35,12 @@ class AppleParams:
     # Intact skin blocks microbes: inoculum 1e-6 (rots over weeks) vs cut/damaged 1e-3.
     q10: float = 2.0
     k_o2_pct: float = 1.0
+    # ASSUMPTION(A71): blue mould (Penicillium expansum), the main postharvest apple rot.
+    # Aerobic; enters through wounds: visible lesions ~3-5 d after wounding at 20-25 C, intact
+    # fruit only via micro-wounds (weeks). Logistic growth, consumes sugar, emits geosmin and
+    # produces the mycotoxin patulin (Snini et al. 2016; Stensmyr et al. 2012).
+    mu_mold: float = 0.06         # 1/h
+    q_mold_sugar: float = 0.03    # g/100g/h sugar used at full mould cover
 
 
 @dataclass
@@ -47,6 +53,8 @@ class AppleState:
     yeast: float = 0.001          # relative biomass 0..1
     aab: float = 0.0005
     ferm_rate: float = 0.0        # g/100g/h current sugar fermentation
+    mold: float = 0.0             # fraction of surface covered by mould 0..1
+    patulin: float = 0.0          # relative mycotoxin level 0..1
 
 
 class Apple:
@@ -54,7 +62,7 @@ class Apple:
                  temp_c: float = 25.0, o2_pct: float = 20.9):
         self.p = p or AppleParams()
         self.s = AppleState(sugar=self.p.sugar0, yeast=1e-3 if cut else 1e-6,
-                            aab=5e-4 if cut else 5e-7)
+                            aab=5e-4 if cut else 5e-7, mold=1e-4 if cut else 1e-7)
         self.cut = cut
         self.temp_c = temp_c
         self.o2_pct = o2_pct
@@ -64,6 +72,7 @@ class Apple:
         """Advance fermentation by `hours` (days-scale process, independent of fly timescale)."""
         p, s = self.p, self.s
         qt = p.q10 ** ((self.temp_c - 25.0) / 10.0)
+        qt_mold = qt  # mould invades intact fruit through micro-wounds; only its inoculum is smaller
         if not self.cut:
             qt *= 0.05  # intact skin: microbes only at micro-wounds; apples keep for weeks
         o2f = self.o2_pct / (self.o2_pct + p.k_o2_pct)
@@ -83,6 +92,12 @@ class Apple:
                 s.ethanol -= conv
                 s.acetic += p.yield_ac * conv
                 s.aab += g_a * dt_h
+            o2_mold = self.o2_pct / (self.o2_pct + 2.0)
+            g_m = qt_mold * o2_mold * p.mu_mold * s.mold * (1 - s.mold)
+            s.mold += g_m * dt_h
+            s.sugar = max(0.0, s.sugar - qt_mold * p.q_mold_sugar * s.mold * dt_h)
+            s.patulin += 0.02 * s.mold * dt_h
+            s.patulin = min(1.0, s.patulin)
             # esters are volatile and hydrolysed: slow loss
             s.esters *= np.exp(-dt_h / 48.0)
             s.age_h += dt_h
@@ -107,6 +122,8 @@ class Apple:
             "2-phenylethanol": 0.02 * s.yeast,
             "acetoin": 0.03 * s.yeast,
             "CO2": 2.0 * s.ferm_rate,  # CO2 only while sugar is actively fermented
+            # geosmin: detected at very low concentration by Or56a/DA2 (Stensmyr et al. 2012)
+            "geosmin": 1.0 * s.mold,
         }
 
     def osmolarity(self) -> float:
@@ -124,13 +141,17 @@ class Apple:
             "ethanol_g": s.ethanol,
             "acetic_g": s.acetic,
             "yeast": min(1.0, s.yeast),
+            "patulin": s.patulin,
+            "mold": s.mold,
         }
 
     def nutrition(self) -> dict:
         s = self.s
-        return {"sugar_frac": min(1.0, s.sugar / 11.0), "yeast_frac": min(1.0, s.yeast)}
+        return {"sugar_frac": min(1.0, s.sugar / 11.0), "yeast_frac": min(1.0, s.yeast),
+                "patulin": s.patulin}
 
     def summary(self) -> str:
         s = self.s
         return (f"age {s.age_h / 24:.1f} d: sugar {s.sugar:.1f}, ethanol {s.ethanol:.2f}, "
-                f"acetic {s.acetic:.2f} g/100g, yeast {s.yeast:.2f}, bacteria {s.aab:.2f}")
+                f"acetic {s.acetic:.2f} g/100g, yeast {s.yeast:.2f}, bacteria {s.aab:.2f}, "
+                f"mould {s.mold:.2f}")

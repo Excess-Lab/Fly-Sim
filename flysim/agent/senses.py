@@ -42,7 +42,10 @@ class Olfaction:
         for j, g in enumerate(cols):
             if g is not None:
                 self.M[:, j] = self.resp[g].to_numpy()
-        self.odorants = list(self.resp.index)
+        # geosmin activates a single dedicated channel, Or56a -> DA2 (Stensmyr et al. 2012)
+        geo = (self.glom == "DA2").astype(float)[None, :]
+        self.M = np.vstack([self.M, geo])
+        self.odorants = list(self.resp.index) + ["geosmin"]
         self.gain = np.ones(len(self.idx))
 
     def set_gains(self, gains: dict):

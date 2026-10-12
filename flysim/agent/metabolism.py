@@ -48,6 +48,15 @@ class Metabolism:
     crop_sugar_ul: float = 0.0  # sugar-equivalent volume in crop
     temp_c: float = 25.0
     o2_pct: float = 20.9
+    toxin: float = 0.0        # ingested patulin load (relative)
+    health: float = 1.0       # 1 = healthy; lowers vigour and lifespan
+
+    def ingest_toxin(self, dose: float, dt_s: float):
+        """ASSUMPTION(A72): patulin is toxic to Drosophila (reduces survival and fecundity);
+        load decays by detoxification with t1/2 ~ 12 h; health = 1 / (1 + 5*load)."""
+        self.toxin += dose
+        self.toxin *= np.exp(-dt_s / (12 * 3600 / np.log(2)))
+        self.health = 1.0 / (1.0 + 5.0 * self.toxin)
 
     @classmethod
     def starved(cls, hours: float, p: MetabolismParams | None = None):

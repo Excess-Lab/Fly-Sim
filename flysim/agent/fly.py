@@ -137,7 +137,8 @@ class Fly:
             self.events.append((round(self.t, 3), "copulation ended"))
         if not self.copulating:
             self.body.step(self.cmd, dt, world.apple.center, world.apple.p.radius_mm, world.arena,
-                           spontaneous=self.cfg.spontaneous, o2_pct=world.o2_pct)
+                           spontaneous=self.cfg.spontaneous,
+                           o2_pct=world.o2_pct * self.meta.health)  # poisoned flies are sluggish
         # ASSUMPTION(A61): a mated female standing on the fruit lays an egg when oviDNs fire,
         # at most one egg per 30 s
         if (self.cfg.sex == "female" and self.mated and self.cmd.get("oviposit")
@@ -151,6 +152,9 @@ class Fly:
         on_food = self.body.proboscis and self.body.surface == "apple"
         nut = world.apple.nutrition()
         self.meta.step(dt, nut["sugar_frac"], ingesting=on_food)
+        dose = nut["patulin"] * self.meta.p.ingest_nl_per_s * 1e-3 * dt / self.meta.p.meal_volume_ul \
+            if on_food else 0.0
+        self.meta.ingest_toxin(dose, dt)
         now = (self.body.mode, self.body.surface, self.body.proboscis)
         if now != was:
             self.events.append((round(self.t, 3), f"{was}->{now}"))

@@ -49,10 +49,12 @@ class Population:
             self.brood.append(Brood(now_h, mother, father, tuple(np.round(pos, 2))))
 
     def survival_per_day(self, apple) -> float:
+        """ASSUMPTION(A73): mould competes with larvae and its toxins kill them (Rohlfs 2005;
+        Trienens et al. 2010): survival x (1 - 0.8 * mould cover)."""
         s = apple.s
         food = min(1.0, s.yeast + 0.5 * s.sugar / 11.0)
         acid_pen = max(0.0, (s.acetic - 4.0) / 4.0)
-        return float(np.clip(0.6 + 0.4 * food - acid_pen, 0.0, 1.0))
+        return float(np.clip((0.6 + 0.4 * food - acid_pen) * (1 - 0.8 * s.mold), 0.0, 1.0))
 
     def fast_forward(self, now_h, hours, apple, flies):
         """Advance the life cycle by `hours` off-line. Returns list of brood ready to eclose."""

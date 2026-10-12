@@ -113,7 +113,8 @@ class LiveSim:
         w.clock_h += hours
         # deaths
         for f in list(w.flies):
-            if f.age_d > pop.lifespan_d:
+            # ASSUMPTION(A72): toxin load shortens life
+            if f.age_d > pop.lifespan_d * (0.3 + 0.7 * f.meta.health):
                 w.flies.remove(f)
         # eclosion (limited by RAM)
         for b in ready:
