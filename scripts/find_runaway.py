@@ -4,8 +4,9 @@ import numpy as np
 from flysim.brain.lif import Brain
 from flysim.data import annotations as A
 con, ann = A.load(sys.argv[1] if len(sys.argv) > 1 else "female")
-b = Brain(con)
-b.apply_point_neuron_corrections(ann)
+from flysim.brain.factory import make_brain
+b, ann = make_brain(sys.argv[1] if len(sys.argv) > 1 else "female")
+
 idx = A.select(ann, "^TRN_VP2")
 b.reset(0); b.set_poisson_targets(idx)
 b.step(1000, idx, 50.0)

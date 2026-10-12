@@ -3,8 +3,9 @@ import numpy as np
 from flysim.brain.lif import Brain
 from flysim.data import annotations as A
 con, ann = A.load("male")
-b = Brain(con)
-print("dropped", b.apply_point_neuron_corrections(ann))
+from flysim.brain.factory import make_brain
+b, _ = make_brain("male")
+
 ppl1, pam = A.select(ann, "^PPL1"), A.select(ann, "^PAM")
 sc, cc, sub, rec = ann.super_class, ann.cell_class, ann.cell_sub_class, ann.receptor
 groups = {
