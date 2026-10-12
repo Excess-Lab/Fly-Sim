@@ -33,6 +33,34 @@ def load(sex: str):
     return _cache[sex]
 
 
+def male_type_gains(b, ann):
+    """ASSUMPTION(A09e): per-cell-type calibration of the male brain against FlyWire (same method
+    as A09d). A single global factor left whole pathways silent (e.g. sugar -> MN9 0 Hz); VNC
+    neurons keep the global Male CNS scale (no FlyWire VNC reference)."""
+    import pandas as pd
+    cache = PROCESSED / "male_type_gains.npy"
+    if cache.exists():
+        g = np.load(cache)
+        if len(g) == b.con.n:
+            return g
+    def insyn(con, w):
+        return np.bincount(con.post, weights=np.abs(w), minlength=con.n)
+    fcon, fann = load("female")
+    fb = Brain(fcon, LIFParams())
+    fb.apply_point_neuron_corrections(fann)
+    ref = pd.DataFrame({"t": fann.type, "x": insyn(fcon, fb.w)})[lambda d: d.t != ""].groupby("t").x.median()
+    mt = ann.flywire_type.str.split(",").str[0].str.strip()
+    mt = mt.where(mt != "", ann.type)
+    mdf = pd.DataFrame({"t": mt.to_numpy(), "x": insyn(b.con, b.w)})
+    mmed = mdf[mdf.t != ""].groupby("t").x.median()
+    ratio = (ref / mmed).replace([np.inf, -np.inf], np.nan).dropna()
+    ratio = ratio[mmed.reindex(ratio.index) > 20]
+    g = np.array(mdf.t.map(ratio).fillna(1.0).clip(0.3, 3.0).to_numpy(), dtype=np.float64, copy=True)
+    g[ann.super_class.str.startswith("vnc").to_numpy()] = 1.0
+    np.save(cache, g)
+    return g
+
+
 def banc_type_gains(b, ann):
     """ASSUMPTION(A09d): per-cell-type calibration of BANC. Each BANC neuron's synaptic input is
     scaled so that the median total input of its cell type equals that of the same type in the
@@ -81,4 +109,6 @@ def make_brain(sex: str, seed: int = 0) -> tuple[Brain, object]:
     b.apply_point_neuron_corrections(ann)
     if sex == "female_banc":
         b.gain[:] = banc_type_gains(b, ann).astype(np.float32)
+    elif sex == "male":
+        b.gain[:] = male_type_gains(b, ann).astype(np.float32)
     return b, ann
