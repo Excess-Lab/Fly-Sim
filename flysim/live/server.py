@@ -42,6 +42,15 @@ SCHEMA = {
                     "default": 420, "norm": "≈420 ppm на улице; мухи избегают CO₂ от ~1000–2000 ppm (0.1–0.2 %)"},
         "temp_c": {"label": "Температура", "unit": "°C", "min": 15.0, "max": 35.0, "step": 0.5,
                    "default": 25.0, "norm": "25 °C — стандарт лабораторий; >30 °C — неприятный жар"},
+        "volume_l": {"label": "Объём воздуха в контейнере", "unit": "л", "min": 1, "max": 1000,
+                     "step": 1, "default": 10, "norm": "банка ~1 л, садок ~10 л, комната ~1000 л"},
+        "ach": {"label": "Вентиляция", "unit": "обм/ч", "min": 0, "max": 20, "step": 0.5,
+                "default": 2, "norm": "0 — герметично (CO₂ копится, O₂ падает); комната ~0.5–6"},
+    },
+    "body": {
+        "realistic": {"label": "Реалистичное тело (NeuroMechFly, MuJoCo)", "type": "bool",
+                      "default": True, "norm": "ноги, гравитация, трение, сцепление, столкновения; "
+                                               "~×0.05 скорости. Выкл. — быстрое упрощённое тело"},
     },
     "apple": {
         "age_days": {"label": "Возраст яблока", "unit": "дн", "min": 0.0, "max": 30.0, "step": 0.5,
@@ -112,11 +121,17 @@ class Simulation:
         self.cfg = cfg
         env, ap, fl, hz, sci, run = (cfg[k] for k in ("environment", "apple", "flies", "hot_zone",
                                                       "science", "run"))
+        from flysim.world.atmosphere import Atmosphere
         apple = Apple(AppleParams(radius_mm=float(ap["radius_mm"])), cut=bool(ap["cut"]),
                       temp_c=float(env["temp_c"]), o2_pct=float(env["o2_pct"]))
-        apple.age(float(ap["age_days"]) * 24)
+        atm = Atmosphere(volume_l=float(env["volume_l"]), ach=float(env["ach"]),
+                         co2_ppm=float(env["co2_ppm"]), o2_pct=float(env["o2_pct"]),
+                         outside_co2_ppm=float(env["co2_ppm"]), outside_o2_pct=float(env["o2_pct"]))
         self.world = World(apple, arena=55.0, ambient_c=float(env["temp_c"]),
-                           o2_pct=float(env["o2_pct"]), co2_ppm=float(env["co2_ppm"]))
+                           o2_pct=float(env["o2_pct"]), co2_ppm=float(env["co2_ppm"]), atm=atm)
+        # the apple has been rotting in this container for age_days before the flies arrive
+        self.world.advance_hours(float(ap["age_days"]) * 24)
+        self.world.clock_h = 0.0
         self.world.population = Population(max_adults=int(run["max_adults"]))
         if hz["enabled"]:
             self.world.zones.append(Zone(center=(-35.0, 25.0), radius=float(hz["radius_mm"]),
@@ -136,19 +151,24 @@ class Simulation:
             for _ in range(n):
                 ang = np.pi + 0.5 * k - 0.4
                 pos = (np.cos(ang) * (r + 12), np.sin(ang) * (r + 12), 0.0)
-                f = self.add_fly(sex, pos, ang + np.pi, float(fl["starved_h"]))
+                f = self.add_fly(sex, pos, ang + np.pi, float(fl["starved_h"]), calibrate=False)
                 if sex == "female" and not fl["virgin"]:
                     f.set_mated("(до опыта)")
                 k += 1
+        self.world.rebuild_physics()
+        for f in self.world.flies:
+            f.calibrate(self.world, 0.5)
 
-    def add_fly(self, sex, pos, yaw, starved_h, note=""):
+    def add_fly(self, sex, pos, yaw, starved_h, note="", calibrate=True):
         sci = self.cfg["science"]
         self.n_made[sex] += 1
         name = f"{'♂' if sex == 'male' else '♀'}{self.n_made[sex]}"
         f = Fly(FlyConfig(name, sex, starved_h=starved_h, seed=self.n_made[sex] * 7 + (sex == "male"),
                           plasticity=bool(sci["plasticity"]), us_punish_shortcut=bool(sci["us_shortcut"]),
-                          spontaneous=bool(sci["spontaneous"])), pos=pos, yaw=yaw)
-        f.calibrate(self.world, 0.5)
+                          spontaneous=bool(sci["spontaneous"]),
+                          body="nmf" if self.cfg["body"]["realistic"] else "simple"), pos=pos, yaw=yaw)
+        if calibrate:
+            f.calibrate(self.world, 0.5)
         if note:
             f.events.append((round(f.t, 3), note))
         self.world.flies.append(f)
@@ -165,7 +185,7 @@ class Simulation:
                         "center": w.apple.center.tolist(), "radius": w.apple.p.radius_mm,
                         "state": {k: round(float(getattr(s, k)), 4) for k in APPLE_NORMS},
                         "mold": round(float(s.mold), 3)},
-              "env": {"o2_pct": w.o2_pct, "co2_ppm": w.co2_ppm, "temp_c": w.ambient_c},
+              "env": {"o2_pct": round(w.o2_pct, 2), "co2_ppm": round(w.co2_ppm), "temp_c": w.ambient_c},
               "zones": [{"center": z.center, "radius": z.radius, "temp_c": z.temp_c} for z in w.zones],
               "brood": w.population.counts(w.clock_h), "born": w.population.born,
               "status": self.status, "flies": {}}
@@ -198,7 +218,16 @@ class Simulation:
         w = self.world
         self.status = f"перемотка {hours:.0f} ч: яблоко бродит и плесневеет, яйца развиваются"
         pop = w.population
-        w.apple.age(hours)  # fruit state for the interval, then the life cycle on it
+        anoxic_h = {f.cfg.name: 0.0 for f in w.flies}
+        # air and fruit evolve together; track hours of anoxia for each fly (A91)
+        left = hours
+        while left > 1e-9:
+            h = min(1.0, left)
+            w.advance_hours(h)
+            if w.o2_pct < 1.0:
+                for f in w.flies:
+                    anoxic_h[f.cfg.name] += h
+            left -= h
         ready = pop.fast_forward(w.clock_h, hours, w.apple, w.flies)
         sugar_frac = w.apple.nutrition()["sugar_frac"]
         patulin = w.apple.nutrition()["patulin"]
@@ -228,6 +257,8 @@ class Simulation:
                 cause = "старость" + (" (ускорена токсином плесени)" if f.meta.health < 0.9 else "")
             elif getattr(f, "starving_h", 0.0) > 48:
                 cause = "голод"
+            elif anoxic_h.get(f.cfg.name, 0.0) > 4:   # A91: flies recover from <~4 h of anoxia
+                cause = "нехватка кислорода"
             if cause:
                 w.flies.remove(f)
                 self.log._ev(w, f, 0.0, "death", f"погибла: {cause}, возраст {f.age_d:.1f} дн")
@@ -243,6 +274,7 @@ class Simulation:
                              note=f"вылупилась (мать {b.mother}, отец {b.father})")
             f.age_d = 0.0
             self.log._ev(w, f, 0.0, "birth", f"новая муха {f.cfg.name} с собственным мозгом")
+        w.rebuild_physics()
 
     def run(self):
         try:

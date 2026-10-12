@@ -121,10 +121,24 @@ class Apple:
             "acetaldehyde": 1.5 * s.ferm_rate,
             "2-phenylethanol": 0.02 * s.yeast,
             "acetoin": 0.03 * s.yeast,
-            "CO2": 2.0 * s.ferm_rate,  # CO2 only while sugar is actively fermented
+            # CO2 at the surface from the gas flux: c_s = Q / (4 pi D R)  (steady diffusion from a
+            # sphere), D_CO2 = 0.16 cm^2/s, Q from fermentation + mould respiration; units: % CO2
+            "CO2": self.co2_surface_pct(),
             # geosmin: detected at very low concentration by Or56a/DA2 (Stensmyr et al. 2012)
             "geosmin": 1.0 * s.mold,
         }
+
+    def mass_g(self) -> float:
+        return 0.85 * 4 / 3 * np.pi * (self.p.radius_mm / 10) ** 3
+
+    def co2_flux_cm3_s(self) -> float:
+        s = self.s
+        sugar_g_h = (s.ferm_rate + self.p.q_mold_sugar * s.mold * 3.0) * self.mass_g() / 100.0
+        mol_h = sugar_g_h / 180.16 * 2.0
+        return mol_h * 24450.0 / 3600.0
+
+    def co2_surface_pct(self) -> float:
+        return 100.0 * self.co2_flux_cm3_s() / (4 * np.pi * 0.16 * self.p.radius_mm / 10)
 
     def osmolarity(self) -> float:
         """Osm/kg of the juice from dissolved sugars (hexose 180 g/mol) and acetic acid."""

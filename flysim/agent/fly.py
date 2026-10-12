@@ -26,6 +26,7 @@ class FlyConfig:
     us_reward_shortcut: bool = True
     spontaneous: bool = True
     seed: int = 0
+    body: str = "nmf"   # "nmf" (NeuroMechFly physics) or "simple" (fast reduced body)
 
 
 class Fly:
@@ -55,11 +56,29 @@ class Fly:
         self.ppk23 = np.flatnonzero((rec == "putative_ppk23").to_numpy())
         self.stim_idx = np.concatenate([
             self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
-            self.intero.idx, self.ppk23, self.ppl1, self.pam]).astype(np.int64)
+            self.intero.idx, self.ppk23, self.ppl1, self.pam, self.noci_idx]).astype(np.int64)
         self.brain.set_poisson_targets(np.concatenate([
             self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
-            self.intero.idx, self.ppk23]))
+            self.intero.idx, self.ppk23, self.noci_idx]))
+        # leg nociceptor candidates per leg (male VNC only). ASSUMPTION(A80): adult leg
+        # nociception (noxious heat >~40 C; TrpA1/painless md neurons) has no annotated class;
+        # the 'unknown_sensory' neurons entering through each leg nerve are used as candidates.
+        self.leg_noci = {}
+        if cfg.sex == "male":
+            import pyarrow.feather as feather
+            from flysim.data.malecns import ANN
+            en = feather.read_table(ANN, columns=["bodyId", "entryNerve"]).to_pandas() \
+                .set_index("bodyId").reindex(con.ids).entryNerve.fillna("").to_numpy()
+            unk = (ann.cell_class == "unknown_sensory").to_numpy()
+            from flysim.agent.body_nmf import LEG_NERVE, LEGS
+            for leg in LEGS:
+                m = unk & (en == LEG_NERVE[leg[1]]) & (ann.side.to_numpy() == ("left" if leg[0] == "l" else "right"))
+                self.leg_noci[leg] = np.flatnonzero(m)
+        self.noci_idx = np.concatenate(list(self.leg_noci.values())).astype(np.int64) if self.leg_noci \
+            else np.zeros(0, np.int64)
         self.motor = MotorReadout(ann)
+        from flysim.agent.physics import BodyTemperature
+        self.thermal = BodyTemperature(25.0)
         self.meta = Metabolism.starved(cfg.starved_h)
         self.body = Body(pos=np.array(pos, float), yaw=yaw, rng=np.random.default_rng(cfg.seed))
         self.counts_acc = np.zeros(con.n, np.int32)
@@ -105,8 +124,27 @@ class Fly:
             taste["bitter"] = 1.0
             contact = max(contact, 0.3)
         r_gust = self.gust.rates(taste, contact)
-        temp = world.temperature_at(self.body.pos)
+        # heat exchange: body temperature from air and from the substrate under the legs (A38)
+        t_air = world.ambient_c
+        t_floor = world.temperature_at(np.array([self.body.pos[0], self.body.pos[1], 0.0]))
+        contacts = getattr(self.body, "contacts", None)
+        if contacts is None:   # simple body: all legs on its surface
+            on_floor = self.body.mode == "walk" and self.body.surface == "floor"
+            contacts = {leg: ("floor" if on_floor else ("apple" if self.body.mode == "walk" else None))
+                        for leg in ("lf", "lm", "lh", "rf", "rm", "rh")}
+        n_floor = sum(1 for c in contacts.values() if c == "floor")
+        n_any = sum(1 for c in contacts.values() if c)
+        t_surf = (t_floor * n_floor + t_air * (n_any - n_floor)) / n_any if n_any else t_air
+        temp = self.thermal.step(t_air, t_surf, n_any / 6.0, 0.01)
         r_th = self.thermo.rates(temp)
+        # leg nociceptors: noxious substrate temperature under each leg (>40 C), male VNC
+        r_noci = np.zeros(len(self.noci_idx))
+        if len(self.noci_idx):
+            off = 0
+            for leg, ids in self.leg_noci.items():
+                hot = t_floor if contacts.get(leg) == "floor" else t_air
+                r_noci[off:off + len(ids)] = 2.0 + 20.0 * max(0.0, hot - 40.0)
+                off += len(ids)
         r_vis = self.vision.rates(self.body.eye(world.apple.center), self.body.yaw,
                                   world.visual_spheres(self))
         r_hear = self.hearing.rates(world.song_at(self))
@@ -122,7 +160,7 @@ class Fly:
             reward = 30.0 * world.apple.nutrition()["sugar_frac"] * gains["sugar"]
         r_pam = np.full(len(self.pam), reward)
         self.last_temp = temp
-        return np.concatenate([r_olf, r_gust, r_th, r_vis, r_hear, r_int, r_ppk, r_ppl1, r_pam])
+        return np.concatenate([r_olf, r_gust, r_th, r_vis, r_hear, r_int, r_ppk, r_ppl1, r_pam, r_noci])
 
     def step(self, world, dt: float):
         rates = self.sense(world)
@@ -135,7 +173,16 @@ class Fly:
         if self.copulating and self.t > self.copulation_until:
             self.copulating = False
             self.events.append((round(self.t, 3), "copulation ended"))
-        if not self.copulating:
+        if self.copulating or getattr(self, "lunging", 0) > 0:
+            cmd = dict(self.cmd)
+            if self.copulating:   # pair stays coupled: no locomotion
+                cmd.update(forward=0.0, backward=0.0, turn=0.0, takeoff=False)
+            else:
+                cmd.update(forward=1.0, turn=0.0, takeoff=False)
+                self.lunging -= dt
+            self.body.step(cmd, dt, world.apple.center, world.apple.p.radius_mm, world.arena,
+                           spontaneous=False, o2_pct=world.o2_pct * self.meta.health)
+        else:
             self.body.step(self.cmd, dt, world.apple.center, world.apple.p.radius_mm, world.arena,
                            spontaneous=self.cfg.spontaneous,
                            o2_pct=world.o2_pct * self.meta.health)  # poisoned flies are sluggish

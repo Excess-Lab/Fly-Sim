@@ -30,6 +30,40 @@ class World:
     clock_h: float = 0.0                                    # world time since start, hours
     population: object = None                               # flysim.world.population.Population
     copulation_s: float = 60.0  # ASSUMPTION(A62): real ~20 min, shortened inside a session
+    arena_phys: object = None   # NMFArena when flies use NeuroMechFly bodies
+    atm: object = None          # flysim.world.atmosphere.Atmosphere (container air)
+
+    def sync_air(self):
+        if self.atm is not None:
+            self.o2_pct, self.co2_ppm = self.atm.o2_pct, self.atm.co2_ppm
+        self.apple.o2_pct = self.o2_pct
+        self.apple.temp_c = self.ambient_c
+
+    def advance_hours(self, hours: float):
+        """Off-line time: apple chemistry and container air evolve together, hour by hour."""
+        left = hours
+        while left > 1e-9:
+            h = min(1.0, left)
+            self.sync_air()
+            self.apple.age(h)
+            if self.atm is not None:
+                self.atm.step(h, self.apple, len(self.flies), self.ambient_c)
+            left -= h
+        self.sync_air()
+
+    def rebuild_physics(self):
+        """(Re)create the shared MuJoCo world for all flies with body='nmf'."""
+        from flysim.agent.body_nmf import NMFArena, NMFBody
+        phys = [f for f in self.flies if f.cfg.body == "nmf"]
+        if not phys:
+            self.arena_phys = None
+            return
+        self.arena_phys = NMFArena(self.apple.center, self.apple.p.radius_mm,
+                                   [(f.cfg.name, f.body.pos, f.body.yaw) for f in phys])
+        for f in phys:
+            old = f.body
+            f.body = NMFBody(self.arena_phys, f.cfg.name, old.rng)
+            f.body.lunge_t = getattr(old, "lunge_t", 0.0)
 
     # ---- fields ---------------------------------------------------------------------------
     def odor_at(self, x, me) -> dict:
@@ -102,6 +136,8 @@ class World:
         flies = self.flies
         for i, a in enumerate(flies):
             for b in flies[i + 1:]:
+                if self.arena_phys is not None:
+                    continue  # MuJoCo resolves body contacts
                 d = b.body.pos - a.body.pos
                 dist = np.linalg.norm(d)
                 if dist < 2 * a.radius and dist > 1e-6 and a.body.mode == b.body.mode == "walk":
@@ -120,7 +156,10 @@ class World:
                 facing = np.dot(d[:2], m.body.heading()[:2]) / max(dist, 1e-6)
                 if o.cfg.sex == "male" and dist < 4.0 and facing > 0.7 and \
                         m.cmd["arousal"] > 0.5 and m.body.lunge_t <= 0:
-                    m.body.pos = m.body.pos + 0.6 * d   # lunge
+                    if self.arena_phys is None:
+                        m.body.pos = m.body.pos + 0.6 * d   # lunge (reduced body)
+                    else:
+                        m.lunging = 0.3  # physical body: 0.3 s full forward drive at the opponent
                     m.body.lunge_t = 0.5
                     m.events.append((round(m.t, 3), f"lunge->{o.cfg.name}"))
                     o.events.append((round(o.t, 3), f"lunged_by->{m.cfg.name}"))
@@ -129,8 +168,9 @@ class World:
                     m.copulating = o.copulating = True
                     m.copulation_until = m.t + self.copulation_s
                     o.copulation_until = o.t + self.copulation_s
-                    m.body.pos = o.body.pos - 1.5 * o.body.heading()
-                    m.body.yaw = o.body.yaw
+                    if self.arena_phys is None:
+                        m.body.pos = o.body.pos - 1.5 * o.body.heading()
+                        m.body.yaw = o.body.yaw
                     o.set_mated(m.cfg.name)
                     m.events.append((round(m.t, 3), f"copulation->{o.cfg.name}"))
                     o.events.append((round(o.t, 3), f"copulation<-{m.cfg.name}"))
@@ -139,5 +179,13 @@ class World:
     def step(self, dt):
         for f in self.flies:
             f.step(self, dt)
+        if self.arena_phys is not None:
+            self.arena_phys.advance(dt)
+            for f in self.flies:
+                if f.cfg.body == "nmf":
+                    f.body.sync()
         self.interactions(dt)
+        if self.atm is not None:
+            self.atm.step(dt / 3600, self.apple, len(self.flies), self.ambient_c)
+            self.sync_air()
         self.clock_h += dt / 3600
