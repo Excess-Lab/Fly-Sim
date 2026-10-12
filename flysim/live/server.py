@@ -151,8 +151,6 @@ class Simulation:
                     f.set_mated("(до опыта)")
                 k += 1
         self.world.rebuild_physics()
-        for f in self.world.flies:
-            f.calibrate(self.world, 0.5)
 
     def add_fly(self, sex, pos, yaw, starved_h, note="", calibrate=True):
         sci = self.cfg["science"]
@@ -162,8 +160,6 @@ class Simulation:
                           plasticity=bool(sci["plasticity"]), us_punish_shortcut=bool(sci["us_shortcut"]),
                           spontaneous=bool(sci["spontaneous"]),
                           body="nmf"), pos=pos, yaw=yaw)
-        if calibrate:
-            f.calibrate(self.world, 0.5)
         if note:
             f.events.append((round(f.t, 3), note))
         self.world.flies.append(f)
@@ -224,27 +220,8 @@ class Simulation:
                     anoxic_h[f.cfg.name] += h
             left -= h
         ready = pop.fast_forward(w.clock_h, hours, w.apple, w.flies)
-        sugar_frac = w.apple.nutrition()["sugar_frac"]
-        patulin = w.apple.nutrition()["patulin"]
         for f in w.flies:
-            m = f.meta
-            m.temp_c, m.o2_pct = w.ambient_c, w.o2_pct
-            # ASSUMPTION(A75): between sessions flies live on the fruit and take a meal whenever
-            # hungry and edible sugar is left (meals every few hours, Ro et al. 2014). Energy is
-            # integrated hour by hour; >48 h at zero energy = death by starvation (lab flies die
-            # after ~2-3 days without food at 25 C).
-            whole, rest = int(hours), hours - int(hours)
-            for dt_h in [1.0] * whole + ([rest] if rest > 0 else []):
-                if m.hunger > 0.3 and sugar_frac > 0.05 and w.o2_pct > 2:
-                    m.crop_ul = m.p.meal_volume_ul
-                    m.crop_sugar_ul = m.p.meal_volume_ul * sugar_frac
-                    m.ingest_toxin(patulin, 0.0)
-                m.step(3600.0 * dt_h)
-                m.ingest_toxin(0.0, 3600.0 * dt_h)
-                f.starving_h = (getattr(f, "starving_h", 0.0) + dt_h) if m.energy <= 0.0 else 0.0
-            f.brain.forget(hours * 3600)  # passive forgetting (A23)
-            f.age_d += hours / 24
-            f.copulating = False
+            f.pass_time(hours, w, fed_from_fruit=True)
         w.clock_h += hours
         for f in list(w.flies):
             cause = None
@@ -303,10 +280,15 @@ class Simulation:
             self.error = f"{e}\n{traceback.format_exc()}"
             self.status = "ошибка: " + str(e)
 
+    def manifest(self) -> dict:
+        from flysim.sim.provenance import manifest
+        return manifest(self.world, {"name": "web_session", "config": self.cfg})
+
     def logs_zip(self) -> bytes:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("config.json", json.dumps(self.cfg, ensure_ascii=False, indent=1))
+            z.writestr("manifest.json", json.dumps(self.manifest(), ensure_ascii=False, indent=1, default=str))
             z.writestr("events.txt", self.log.events_text())
             z.writestr("events.jsonl", self.log.events_jsonl())
             z.writestr("timeseries.csv", self.log.timeseries_csv())
@@ -331,6 +313,10 @@ timeseries.csv             — каждые 0.1 с для каждой мухи:
 apple.csv                  — состояние яблока: сахар, спирт, уксус, дрожжи, бактерии, плесень,
                              запахи, яйца/личинки/куколки.
 config.json                — условия опыта.
+manifest.json              — версия модели, ID эксперимента, режим механизмов
+                             (connectome_only / connectome_plus_approximations /
+                             experimental_shortcuts), какие обходы и приближения
+                             использовались, полнота нервной системы каждой мухи.
 
 ВАЖНО: valence_proxy, PPL1, PAM — функциональные нейронные корреляты ценности стимула.
 Они не являются измерением субъективного переживания.
@@ -417,7 +403,8 @@ def make_handler(app: App):
                 return self._json({"running": bool(sim and not sim.stop_flag and not sim.error),
                                    "status": sim.status if sim else "не запущено",
                                    "error": sim.error if sim else None,
-                                   "config": sim.cfg if sim else defaults()})
+                                   "config": sim.cfg if sim else defaults(),
+                                   "manifest": sim.manifest() if sim and sim.world.flies else None})
             if u.path.startswith("/api/brain/"):
                 return self._json(brain_static(u.path.rsplit("/", 1)[1]))
             if u.path == "/api/frames":

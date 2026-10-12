@@ -18,7 +18,12 @@ TS_FIELDS = ["clock_h", "t", "fly", "sex", "x", "y", "z", "yaw", "mode", "surfac
              "PPL1_punish_Hz", "PAM_reward_Hz", "valence_proxy", "MBON_Hz", "KC_Hz",
              "mbon_w_min", "mbon_w_mean", "n_active_neurons",
              "fwd_Hz", "back_Hz", "DNa02_L_Hz", "DNa02_R_Hz", "GF_Hz", "takeoff_Hz", "land_Hz",
-             "MN9_Hz", "pIP10_song_Hz", "P1_arousal_Hz", "DNp37_receptive_Hz", "oviDN_Hz"]
+             "MN9_Hz", "pIP10_song_Hz", "P1_arousal_Hz", "DNp37_receptive_Hz", "oviDN_Hz",
+             # level 2: motor command derived from the neurons
+             "cmd_forward", "cmd_backward", "cmd_turn", "cmd_takeoff", "cmd_land", "cmd_proboscis",
+             "drive_L", "drive_R",
+             # level 3: physical movement of the body
+             "speed_mm_s", "yaw_rate_deg_s", "legs_in_contact", "legs_on_apple", "body_temp_c"]
 
 APPLE_FIELDS = ["clock_h", "age_d", "sugar", "ethanol", "acetic", "esters", "yeast", "bacteria",
                 "ferm_rate", "odor_ethyl_acetate", "odor_ethanol", "odor_acetic_acid", "odor_CO2",
@@ -70,6 +75,27 @@ class EventLog:
                 "P1_arousal_Hz": round(r["arousal_P1"], 2), "DNp37_receptive_Hz": round(r["receptive"], 2),
                 "oviDN_Hz": round(r.get("ovi", 0.0), 2),
             }
+            c = f.cmd
+            drv = getattr(getattr(f.body, "arena", None), "drive", {}).get(f.cfg.name, [np.nan, np.nan]) \
+                if hasattr(f.body, "arena") else [np.nan, np.nan]
+            prev = self.prev.get(f.cfg.name)
+            if prev is not None and t > prev["t"]:
+                dt = t - prev["t"]
+                spd = np.hypot(s["x"] - prev["x"], s["y"] - prev["y"]) / dt
+                dyaw = (s["yaw"] - prev["yaw"] + np.pi) % (2 * np.pi) - np.pi
+                yr = np.degrees(dyaw) / dt
+            else:
+                spd, yr = 0.0, 0.0
+            cont = getattr(f.body, "contacts", {}) or {}
+            s.update({"cmd_forward": round(c["forward"], 3), "cmd_backward": round(c["backward"], 3),
+                      "cmd_turn": round(c["turn"], 3), "cmd_takeoff": int(c["takeoff"]),
+                      "cmd_land": int(c["land"]), "cmd_proboscis": int(c["proboscis"]),
+                      "drive_L": round(float(drv[0]), 3), "drive_R": round(float(drv[1]), 3),
+                      "speed_mm_s": round(float(spd), 2), "yaw_rate_deg_s": round(float(yr), 1),
+                      "legs_in_contact": sum(1 for v in cont.values() if v),
+                      "legs_on_apple": sum(1 for v in cont.values() if v == "apple"),
+                      "body_temp_c": round(float(getattr(f, "thermal", None).T), 2)
+                      if hasattr(f, "thermal") else np.nan})
             self.rows.append(s)
             self._events_for(w, f, t, s, self.prev.get(f.cfg.name))
             self.prev[f.cfg.name] = s

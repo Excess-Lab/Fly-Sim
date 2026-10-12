@@ -68,7 +68,6 @@ def place_avoidance(cond="full", seed=0, t_base=20.0, t_train=30.0, t_test=30.0)
             pos=(-20, -20, 0), yaw=0.8)
     w.flies.append(f)
     w.rebuild_physics()
-    f.calibrate(w)
     rec = Recorder(w)
     rec.run(t_base, log_every=10)
     zone.active = True
@@ -103,7 +102,6 @@ def tmaze_choice(cond="full", seed=0, retention_h=(0.0,), t_train=30.0, t_test=3
     A = {"ethyl acetate": 1.0}
     B = {"isoamyl acetate": 1.0}
     rec = Recorder(w)
-    f.calibrate(w, 0.5)
     t = 0.0
     # Tully & Quinn 1985: odour A with 12 x 1.25 s shocks over 60 s (one every 5 s), 45 s rest,
     # odour B 60 s without shocks. Durations scaled by t_train / 60.
@@ -126,11 +124,10 @@ def tmaze_choice(cond="full", seed=0, retention_h=(0.0,), t_train=30.0, t_test=3
                "tests": []}
     elapsed_h = 0.0
     for h in retention_h:
-        f.brain.forget((h - elapsed_h) * 3600)
+        f.pass_time(h - elapsed_h, w)  # retention interval: the fly lives on, memories fade
         elapsed_h = h
         f.body.teleport((0.0, 0.0, 0.0), np.pi / 2)
         w.extra_odor_sources = [((-40, 0, 0), A, 8.0), ((40, 0, 0), B, 8.0)]
-        f.calibrate(w, 0.5)
         t_start = t
         rec.run(t_test, log_every=0, t0=t)
         t += t_test
@@ -158,7 +155,6 @@ def food_search_after_aversion(cond="full", seed=0, t_naive=40.0, t_train=20.0, 
             pos=(-50, 0, 0), yaw=0.0)
     w.flies.append(f)
     w.rebuild_physics()
-    f.calibrate(w)
     rec = Recorder(w)
     rec.run(t_naive, log_every=10)
     on = lambda x: x["surface"] == "apple"  # noqa: E731
@@ -193,7 +189,6 @@ def conflict(starved_h=24, seed=0, t=60.0, ring_temp=34.0):
     f = Fly(FlyConfig("F", "female", starved_h=starved_h, seed=seed), pos=(-50, 0, 0), yaw=0.0)
     w.flies.append(f)
     w.rebuild_physics()
-    f.calibrate(w)
     rec = Recorder(w)
     rec.run(t, log_every=15)
     fr = rec.frames["F"]
@@ -220,8 +215,6 @@ def pair(mode="courtship", seconds=60.0, apple_days=2, seed=0):
     for c, (p, y) in zip(cfgs, starts):
         w.flies.append(Fly(c, pos=p, yaw=y))
     w.rebuild_physics()
-    for f in w.flies:
-        f.calibrate(w)
     rec = Recorder(w)
     rec.run(seconds, log_every=10)
     m = {"experiment": f"pair_{mode}", "seed": seed, "apple": w.apple.summary(),

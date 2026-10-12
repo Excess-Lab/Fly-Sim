@@ -207,14 +207,30 @@ class Fly:
             self.events.append((round(self.t, 3), f"{was}->{now}"))
         self.t += dt
 
-    def calibrate(self, world, seconds: float = 1.0, dt: float = 0.01):
-        """Stand still under the current (near-symmetric) input; record DN baselines (A59)."""
-        for _ in range(int(round(seconds / dt))):
-            rates = self.sense(world)
-            counts, _ = self.brain.step(int(round(dt * 1000 / self.brain.p.dt)), self.stim_idx, rates)
-            self.motor.update(counts, dt * 1000)
-        self.motor.set_baseline()
-        self.counts_acc[:] = 0
+    def pass_time(self, hours: float, world, fed_from_fruit: bool = False):
+        """The organism lives through `hours` off-line (between sessions / retention intervals):
+        its own metabolism runs and memories fade (A23). The experimenter only lets time pass."""
+        m = self.meta
+        m.temp_c, m.o2_pct = world.ambient_c, world.o2_pct
+        sugar_frac = world.apple.nutrition()["sugar_frac"]
+        patulin = world.apple.nutrition()["patulin"]
+        whole, rest = int(hours), hours - int(hours)
+        for dt_h in [1.0] * whole + ([rest] if rest > 0 else []):
+            # A75: living on the fruit, the fly takes a meal when hungry and sugar is left
+            if fed_from_fruit and m.hunger > 0.3 and sugar_frac > 0.05 and world.o2_pct > 2:
+                m.crop_ul = m.p.meal_volume_ul
+                m.crop_sugar_ul = m.p.meal_volume_ul * sugar_frac
+                m.ingest_toxin(patulin, 0.0)
+            m.step(3600.0 * dt_h)
+            m.ingest_toxin(0.0, 3600.0 * dt_h)
+            self.starving_h = (getattr(self, "starving_h", 0.0) + dt_h) if m.energy <= 0.0 else 0.0
+        self.brain.forget(hours * 3600)
+        self.age_d += hours / 24
+        self.copulating = False
+
+    def calibrate(self, world, seconds: float = 0.0, dt: float = 0.01):
+        """Deprecated: steering adaptation is intrinsic now (MotorReadout.adapt, A59)."""
+        return
 
     def pop_counts(self):
         c = self.counts_acc.copy()

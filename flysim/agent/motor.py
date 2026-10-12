@@ -59,14 +59,20 @@ class MotorReadout:
         self.tau = tau_ms
         self.base_l = {k: 0.0 for k in self.groups}
         self.base_r = {k: 0.0 for k in self.groups}
+        self.age_ms = 0.0
 
-    def set_baseline(self):
-        """ASSUMPTION(A59): left/right DN baseline under symmetric input is subtracted for
-        steering. The connectome model shows strong left/right asymmetries (e.g. symmetric ORN
-        input drives only the left DNa02), partly from reconstruction differences; real flies
-        have individual handedness but do not circle continuously."""
-        self.base_l = dict(self.rate_l)
-        self.base_r = dict(self.rate_r)
+    def adapt(self, dt_ms: float):
+        """ASSUMPTION(A59): intrinsic, always-on adaptation of the left/right steering baseline
+        (homeostatic adaptation; fast while the nervous system settles after 'waking', then
+        tau = 60 s). It is part of the organism, never triggered by an experiment. Needed because
+        the connectome model is strongly left/right asymmetric (symmetric ORN input drives only
+        the left DNa02), partly from reconstruction differences."""
+        self.age_ms += dt_ms
+        tau = min(60_000.0, 300.0 + self.age_ms)
+        a = dt_ms / tau
+        for k in self.groups:
+            self.base_l[k] += a * (self.rate_l[k] - self.base_l[k])
+            self.base_r[k] += a * (self.rate_r[k] - self.base_r[k])
 
     def update(self, counts: np.ndarray, dt_ms: float):
         a = np.exp(-dt_ms / self.tau)
@@ -77,6 +83,7 @@ class MotorReadout:
                                      ("r", self.rate_r, self.right[k])):
                 inst_s = counts[ids].mean() / (dt_ms * 1e-3) if len(ids) else 0.0
                 store[k] = a * store[k] + (1 - a) * inst_s
+        self.adapt(dt_ms)
 
     def commands(self) -> dict:
         r, L, R = self.rate, self.rate_l, self.rate_r

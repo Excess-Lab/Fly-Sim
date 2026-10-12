@@ -57,9 +57,17 @@ class Recorder:
                 print(f"t={t:6.1f}s wall={time.time() - start:6.0f}s  {s}", flush=True)
         return self
 
-    def save(self, out_dir: Path, meta: dict | None = None):
+    def save(self, out_dir: Path, meta: dict | None = None, protocol: dict | None = None):
+        from flysim.sim.provenance import manifest
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
+        man = manifest(self.world, protocol or {"name": (meta or {}).get("experiment", "run"),
+                                                "parameters": meta or {}})
+        (out_dir / "manifest.json").write_text(json.dumps(man, indent=1, default=str))
+        if meta is not None:
+            meta["experiment_id"] = man["experiment_id"]
+            meta["mode"] = man["mode"]
+            meta["model_version"] = man["model_version"]
         apple = self.world.apple
         info = {
             "meta": meta or {}, "frame_dt": self.frame_dt, "arena": self.world.arena,
