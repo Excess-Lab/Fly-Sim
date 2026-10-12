@@ -1,7 +1,7 @@
 <h1 align="center">Fly-Sim</h1>
 
 <p align="center">
-<b>Two digitized fruit flies, a rotting apple and the air around them — every decision comes from a simulated connectome.</b><br>
+<b>Digitized fruit flies, a rotting apple and the air around them — behaviour is driven by simulated connectomes, and every approximation is documented.</b><br>
 Whole-brain spiking models of <i>Drosophila</i> in realistic bodies, with physics, metabolism, learning and reproduction.<br>
 Runs on a laptop, one container, configured in the browser.
 </p>
@@ -47,7 +47,14 @@ through descending neurons with experimentally known motor functions. Hunger, fe
 courtship, aggression, learning and egg laying have to emerge from the wiring.
 
 Every place where the model departs from measured data is written down with its source in
-[ASSUMPTIONS.md](ASSUMPTIONS.md); what does not work yet is in [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+[ASSUMPTIONS.md](ASSUMPTIONS.md); what does not work yet is in [KNOWN_ISSUES.md](KNOWN_ISSUES.md);
+the model's boundaries are in [MODEL_SCOPE.md](MODEL_SCOPE.md), what has been validated in
+[SCIENTIFIC_VALIDATION.md](SCIENTIFIC_VALIDATION.md), and how to design experiments in
+[EXPERIMENT_DESIGN.md](EXPERIMENT_DESIGN.md) (Russian).
+
+Every result carries a mechanism mode: `connectome_only`, `connectome_plus_approximations` or
+`experimental_shortcuts`. The mode, model version, experiment ID and each fly's connectome
+coverage are saved in `manifest.json`.
 
 ## What is simulated
 
@@ -57,6 +64,7 @@ Every place where the model departs from measured data is written down with its 
 |---|---|---|
 | Connectome | FlyWire v783 brain (Dorkenwald et al. 2024) | Janelia Male CNS v1.0: brain + optic lobes + ventral nerve cord |
 | Neurons / connections | 138,639 / 15.1 M | 164,587 / 25.6 M |
+| Female full CNS | BANC 888 (brain + VNC, 181,627 neurons) — **experimental**, not yet equivalent to FlyWire | — |
 | Neuron model | Leaky integrate-and-fire (Shiu et al. 2024), event-driven, Numba | same, synaptic weight calibrated across datasets (×1/1.78, 7,220 matched cell types) |
 
 The simulator reproduces the published Brian2 reference **spike for spike** (9,054 of 9,054 spikes in 1 s)
@@ -84,8 +92,13 @@ synapses onto sensory neurons and Kenyon cells).
 - **Flight and falling:** quasi-steady aerodynamics (wing force ∝ stroke amplitude², drag, gravity);
   free fall at ~3 m/s terminal velocity without wing beats.
 - **Heat:** lumped heat exchange of a 1 mg body with air and, through the legs, with the floor.
+- **Motor chain (male, BANC):** brain → descending neurons → VNC → leg motor neurons → muscle
+  activation → NeuroMechFly joints, with proprioceptive feedback. The stepping rhythm still comes
+  from NeuroMechFly's CPG: the connectome VNC does not generate it (A81).
 - **Nociception:** noxious floor heat under a specific leg drives that leg's sensory neurons in the
-  male ventral nerve cord.
+  ventral nerve cord (annotated multidendritic neurons in BANC, candidates in the male).
+- **Body schema:** state of every leg, wing, antenna and eye plus measured function; lesions are set
+  by the experimenter and the organism is not told.
 
 ### World
 
@@ -163,6 +176,10 @@ world fast-forwards: the apple rots, the air changes, flies get hungry, eggs dev
 | Sensory integration and persistence | brain-only probes | — |
 
 ## Scientific honesty
+
+- Male vs. FlyWire-female differences are not sex differences without correcting for the
+  different coverage of the nervous system (the FlyWire female has no VNC) — see MODEL_SCOPE.md.
+- Replicated series with 95 % CIs, effect sizes and power analysis: `scripts/series.py`.
 
 - Behaviour is never scripted; motor *primitives* (lunge, copulation) are triggered only by brain
   activity and are listed as assumptions.
