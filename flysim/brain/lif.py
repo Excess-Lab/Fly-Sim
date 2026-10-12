@@ -13,9 +13,14 @@ Only neurons that spike propagate (event-driven), so cost scales with activity, 
 State persists between calls to `step`, so the brain can be advanced in chunks inside a
 closed sensorimotor loop.
 """
+import threading
 from dataclasses import dataclass, field
 
 import numpy as np
+
+# Numba's default (workqueue) threading layer is not thread-safe and TBB is unavailable on Apple
+# Silicon: parallel kernels of different simulations running in threads must not overlap.
+_KERNEL_LOCK = threading.Lock()
 from numba import njit, prange
 
 from flysim.data.flywire import Connectome
@@ -359,6 +364,13 @@ class Brain:
         rec_mask[record] = np.arange(len(record), dtype=np.int32)
         rec_out = np.zeros((n_steps, len(record)), dtype=np.uint8)
         counts = np.zeros(self.con.n, dtype=np.int32)
+        with _KERNEL_LOCK:
+            self._run_kernel(n_steps, stim_idx, stim_p, ks, ki, counts, rec_mask, rec_out)
+        self.t_step += n_steps
+        return counts, rec_out
+
+    def _run_kernel(self, n_steps, stim_idx, stim_p, ks, ki, counts, rec_mask, rec_out):
+        p = self.p
         _step(n_steps, self.t_step, self.v, self.g, self.rfc_left, self.rfc_len, self.ring,
               self.con.indptr, self.con.post, self.w, self.gain,
               self._decay_v, self._decay_g, self._coef_a, p.v_0, p.v_th, p.v_rst,
@@ -367,8 +379,6 @@ class Brain:
               self.pl_on, self.x_tr, self.da_tr, self.dan_ptr, self.dan_m, self.dan_a,
               self.pe_edge, self.pe_pre, self.pe_m, self.pe_w0, self.kc_idx, self.pl_c,
               self.kc_new, self.da_new, self.wad, self._decay_w, self._coef_w, p.b_w)
-        self.t_step += n_steps
-        return counts, rec_out
 
     def run(self, t_ms: float, stim: dict | None = None, record=None, seed: int | None = None):
         """Convenience: fresh trial with constant Poisson stimulus {neuron_index: rate_Hz}."""

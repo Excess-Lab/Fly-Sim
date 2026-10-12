@@ -234,9 +234,12 @@ class EventLog:
                     ("fly", "apple"): "в полёте"}[(s["mode"], s["surface"])]
             E("location", f"теперь {what}", mode=s["mode"], surface=s["surface"])
         if s["proboscis"] and not p["proboscis"]:
-            E("feeding_start", f"выдвинула хоботок и ест (сахар {s['taste_sugar']:.2f}, спирт "
-              f"{s['taste_ethanol']:.2f}, кислота {s['taste_acid']:.2f}; MN9 {s['MN9_Hz']:.0f} Гц)")
-        if p["proboscis"] and not s["proboscis"]:
+            if s["surface"] == "apple":
+                E("feeding_start", f"выдвинула хоботок и ест (сахар {s['taste_sugar']:.2f}, спирт "
+                  f"{s['taste_ethanol']:.2f}, кислота {s['taste_acid']:.2f}; MN9 {s['MN9_Hz']:.0f} Гц)")
+            else:
+                E("info", f"выдвинула хоботок на полу — пробует субстрат, еды нет (MN9 {s['MN9_Hz']:.0f} Гц)")
+        if p["proboscis"] and not s["proboscis"] and p["surface"] == "apple":
             E("feeding_stop", f"перестала есть (голод {s['hunger']:.2f}, зоб {s['crop_ul']:.3f} мкл)")
         if s["temp"] > 30 >= p["temp"]:
             E("heat_on", f"оказалась в жаре {s['temp']:.1f} °C")

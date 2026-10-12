@@ -16,7 +16,7 @@ import traceback
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import numpy as np
 
@@ -627,7 +627,7 @@ def make_handler(app: App):
             u = urlparse(self.path)
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
-            parts = u.path.strip("/").split("/")
+            parts = [unquote(x) for x in u.path.strip("/").split("/")]
             if u.path == "/api/start":
                 return self._json({"run_id": app.start(body)})
             if u.path == "/api/experiment":
@@ -652,7 +652,7 @@ def make_handler(app: App):
         def do_GET(self):
             u = urlparse(self.path)
             q = parse_qs(u.query)
-            parts = u.path.strip("/").split("/")
+            parts = [unquote(x) for x in u.path.strip("/").split("/")]
             if u.path in ("/", "/index.html"):
                 return self._send(PAGE.read_text(), "text/html; charset=utf-8")
             if u.path == "/api/schema":

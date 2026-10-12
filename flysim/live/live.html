@@ -5,348 +5,482 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fly-Sim</title>
 <style>
-:root { --bg:#f6f5f1; --panel:#fff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e2e0da; --soft:#f6f5f1;
-  --folder:#e7e5df; --accent:#c2410c; --orange:#ea580c; --red:#dc2626; --male:#2563eb; --female:#db2777; --brain:#101014; }
+:root { --bg:#f6f5f1; --panel:#fff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e2e0da; --soft:#f2f1ec; --folder:#e7e5df;
+  --accent:#c2410c; --orange:#ea580c; --red:#dc2626; --green:#16a34a; --male:#2563eb; --female:#db2777; --brain:#101014; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#121214; --panel:#1b1b1e; --ink:#ececef;
-  --muted:#9a9aa2; --line:#2c2c31; --soft:#141416; --folder:#2c2c31; --accent:#fb923c; --male:#60a5fa; --female:#f472b6; --brain:#08080a; } }
-:root[data-theme="dark"] { --bg:#121214; --panel:#1b1b1e; --ink:#ececef; --muted:#9a9aa2; --line:#2c2c31; --soft:#141416;
+  --muted:#9a9aa2; --line:#2c2c31; --soft:#16161a; --folder:#2c2c31; --accent:#fb923c; --male:#60a5fa; --female:#f472b6; --brain:#08080a; } }
+:root[data-theme="dark"] { --bg:#121214; --panel:#1b1b1e; --ink:#ececef; --muted:#9a9aa2; --line:#2c2c31; --soft:#16161a;
   --folder:#2c2c31; --accent:#fb923c; --male:#60a5fa; --female:#f472b6; --brain:#08080a; }
-* { box-sizing: border-box; }
+* { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif; }
-button, input { font: inherit; color: inherit; }
-.top { display:flex; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
-.brand { font-weight:600; font-size:17px; } .ctx { display:none; } .orb { display:none; }
-.tabs { display:flex; gap:6px; margin-left:auto; }
-.tab { border:1px solid var(--line); background:var(--panel); border-radius:8px; padding:6px 12px; cursor:pointer; }
-.tab.on { background:var(--ink); color:var(--panel); border-color:var(--ink); }
-.sheet { padding:12px 16px; }
-.head { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-end; }
-h1 { font-size:20px; margin:0; } .sub { color:var(--muted); font-size:13px; }
-.pills { display:flex; gap:8px; flex-wrap:wrap; }
-.pill { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:4px 10px; font-size:12px; color:var(--muted); }
-.pill small { margin-right:6px; } .pill b { color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; }
-.bar { display:flex; gap:8px; align-items:center; margin:12px 0; flex-wrap:wrap; }
-.bar .grow { flex:1; min-width:200px; color:var(--muted); font-size:13px; }
-.btn { border:1px solid var(--line); background:var(--panel); border-radius:8px; padding:7px 14px; cursor:pointer; font-weight:500; }
-.btn.dark, .btn.go { background:var(--ink); color:var(--panel); border-color:var(--ink); }
+button, input, select, textarea { font:inherit; color:inherit; }
+a { color:inherit; }
+.top { display:flex; gap:12px; align-items:center; padding:10px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; position:sticky; top:0; background:var(--bg); z-index:5; }
+.brand { font-weight:700; font-size:17px; cursor:pointer; }
+.crumb { color:var(--muted); font-size:13px; }
+.tabs { display:flex; gap:6px; margin-left:auto; flex-wrap:wrap; }
+.btn { border:1px solid var(--line); background:var(--panel); border-radius:8px; padding:6px 12px; cursor:pointer; font-weight:500; text-decoration:none; display:inline-block; }
+.btn.dark { background:var(--ink); color:var(--panel); border-color:var(--ink); }
+.btn.small { padding:3px 8px; font-size:12px; }
+.btn.on { background:var(--ink); color:var(--panel); }
 .btn:disabled { opacity:.5; cursor:default; }
+.wrap { padding:12px 16px; }
+h1 { font-size:20px; margin:0 0 2px; } .sub { color:var(--muted); font-size:13px; }
+.head { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:12px; }
+.pill { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:3px 9px; font-size:12px; color:var(--muted); display:inline-block; }
+.pill b { color:var(--ink); }
 .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px; }
-.folder { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; display:block; }
-.folder .sticker { font-size:13px; font-weight:600; padding:8px 12px; border-bottom:1px solid var(--line); }
-.folder .shape { padding:4px 12px 10px; } .folder h3 { display:none; } .folder .note { color:var(--muted); font-size:12px; padding:0 12px 10px; margin:0; }
-.field { padding:8px 0; border-bottom:1px solid var(--line); } .field:last-child { border-bottom:0; }
-.field label { display:flex; justify-content:space-between; gap:8px; }
-.field label b { font-weight:600; font-variant-numeric:tabular-nums; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.card .ch { display:flex; justify-content:space-between; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); flex-wrap:wrap; align-items:center; }
+.card .ch h4 { margin:0; font-size:13px; } .card .ch span { color:var(--muted); font-size:12px; }
+.card .cb { padding:8px 12px; }
+.field { padding:7px 0; border-bottom:1px solid var(--line); } .field:last-child { border-bottom:0; }
+.field label { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+.field label b { font-variant-numeric:tabular-nums; }
 .field input[type=range] { width:100%; accent-color:var(--ink); }
-.field select { border:1px solid var(--line); background:var(--panel); border-radius:6px; padding:2px 6px; max-width:60%; }
-.badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:99px; background:var(--folder); color:var(--ink); margin-left:6px; }
-.badge.warn { background:#fde68a; color:#78350f; }
-.legs { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; padding:0 12px 10px; font-size:11.5px; color:var(--muted); }
-.legs div b { color:var(--ink); font-weight:600; }
-.field .norm { font-size:11.5px; color:var(--muted); }
-.toggle { display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; }
+.field select { border:1px solid var(--line); background:var(--panel); border-radius:6px; padding:2px 6px; max-width:62%; }
+.norm { font-size:11.5px; color:var(--muted); }
 .toggle input { width:36px; height:20px; appearance:none; background:var(--folder); border-radius:99px; position:relative; cursor:pointer; flex:none; }
 .toggle input::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:left .15s; }
 .toggle input:checked { background:var(--ink); } .toggle input:checked::after { left:18px; }
 .run { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:12px; }
 @media (max-width:900px) { .run { grid-template-columns:1fr; } }
-.panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
-.panel .ph { display:flex; justify-content:space-between; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
-.panel .ph h4 { margin:0; font-size:13px; } .panel .ph span { color:var(--muted); font-size:12px; }
 #scene { width:100%; aspect-ratio:4/3; display:block; cursor:grab; }
-.brains { display:grid; gap:12px; align-content:start; }
 .brain canvas { width:100%; aspect-ratio:16/10; display:block; background:var(--brain); cursor:grab; }
-.stats, .apple-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:6px; padding:8px 12px; }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:6px; padding:8px 12px; }
 .stat { font-size:12px; color:var(--muted); } .stat b { display:block; color:var(--ink); font-size:14px; font-variant-numeric:tabular-nums; }
 .meter { height:3px; background:var(--folder); border-radius:3px; margin-top:4px; overflow:hidden; } .meter i { display:block; height:100%; background:var(--ink); }
-.log { max-height:220px; overflow:auto; padding:8px 12px; font:12px ui-monospace,Menlo,monospace; color:var(--muted); }
-.log div { display:flex; gap:8px; } .log time { flex:none; width:84px; }
-.legend { display:flex; gap:12px; padding:6px 12px; font-size:12px; color:var(--muted); flex-wrap:wrap; }
+.legend { display:flex; gap:10px; padding:6px 12px; font-size:12px; color:var(--muted); flex-wrap:wrap; }
 .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:-1px; }
-.err { white-space:pre-wrap; background:#fee2e2; color:#991b1b; padding:10px; border-radius:8px; font-size:12px; margin-top:10px; }
+.badge { display:inline-block; font-size:11px; padding:1px 7px; border-radius:99px; background:var(--folder); margin-left:6px; }
+.badge.warn { background:#fde68a; color:#78350f; }
+.evlist { max-height:560px; overflow:auto; }
+.ev { border-bottom:1px solid var(--line); padding:6px 12px; cursor:pointer; font-size:13px; }
+.ev:hover { background:var(--soft); }
+.ev .meta { color:var(--muted); font-size:11.5px; display:flex; gap:8px; flex-wrap:wrap; }
+.ev.open { background:var(--soft); }
+.detail { margin-top:6px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px; font-size:12px; cursor:default; }
+.detail pre { white-space:pre-wrap; margin:6px 0 0; max-height:260px; overflow:auto; font:11.5px ui-monospace,Menlo,monospace; }
+.imp3 { border-left:3px solid var(--red); } .imp2 { border-left:3px solid var(--orange); } .imp1 { border-left:3px solid transparent; }
+#timeline { width:100%; height:110px; display:block; cursor:crosshair; }
+#regions { width:100%; height:180px; display:block; }
+.flow { display:grid; grid-template-columns:repeat(10, 1fr); gap:1px; font-size:10px; margin-top:6px; }
+.flow div { padding:2px; text-align:center; border-radius:2px; overflow:hidden; }
+.modal { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; z-index:20; padding:16px; }
+.modal .box { background:var(--panel); border-radius:12px; max-width:860px; width:100%; max-height:90vh; overflow:auto; padding:16px; }
+.legs { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; padding:0 12px 10px; font-size:11.5px; color:var(--muted); }
+.legs b { color:var(--ink); }
+.err { white-space:pre-wrap; background:#fee2e2; color:#991b1b; padding:10px; border-radius:8px; font-size:12px; margin:10px 0; }
 .hidden { display:none !important; }
+table.t { border-collapse:collapse; width:100%; font-size:12.5px; } table.t td, table.t th { border-bottom:1px solid var(--line); padding:4px 6px; text-align:left; vertical-align:top; }
 </style>
 </head>
 <body>
 <div class="top">
-  <div class="brand">Fly-Sim</div>
-  <div class="ctx"><small>Мир</small><b>Мухи · воздух · яблоко</b></div>
-  <div class="tabs">
-    <button class="tab on" data-v="setup">Условия</button>
-    <button class="tab" data-v="run">Наблюдение</button>
-    <button class="tab" data-v="logs">Логи</button>
-  </div>
+  <span class="brand" onclick="go('#/home')">Fly-Sim</span>
+  <span class="crumb" id="crumb"></span>
+  <div class="tabs" id="tabs"></div>
 </div>
-
-<div class="sheet">
-  <!-- SETUP -->
-  <section id="v-setup">
-    <div class="head">
-      <div><h1>Условия опыта</h1><div class="sub">Реальный мир в миниатюре: только мухи, воздух и яблоко</div></div>
-      <div class="pills"><div class="pill"><small>Нейронов на муху</small><b>139–165 тыс.</b></div></div>
-    </div>
-    <div class="bar">
-      <div class="grow">Поведением управляет симуляция коннектома; все приближения и обходы помечены (режим — на карточке мозга, подробно — в manifest.json и ASSUMPTIONS.md)</div>
-      <button class="btn" id="reset">Сбросить</button>
-      <button class="btn go" id="start">Запустить ▸</button>
-    </div>
-    <div class="grid" id="form"></div>
-  </section>
-
-  <!-- RUN -->
-  <section id="v-run" class="hidden">
-    <div class="head">
-      <div><h1 id="runtitle">Наблюдение</h1><div class="sub" id="status">не запущено</div></div>
-      <div class="pills">
-        <div class="pill"><small>Мир</small><b id="day">—</b></div>
-        <div class="pill"><small>Сессия</small><b id="sess">—</b></div>
-      </div>
-    </div>
-    <div class="bar">
-      <div class="grow" id="brood">—</div>
-      <button class="btn" id="add-m">+ самец</button>
-      <button class="btn" id="add-f">+ самка</button>
-      <button class="btn" id="pause">Пауза</button>
-      <button class="btn" id="stop">Стоп</button>
-      <button class="btn dark" id="dl">Скачать логи</button>
-    </div>
-    <div class="run">
-      <div style="display:grid; gap:18px; align-content:start">
-        <div class="panel"><div class="ph"><h4>Арена</h4><span id="envinfo"></span></div><canvas id="scene"></canvas><div class="legend" id="legend"></div></div>
-        <div class="panel"><div class="ph"><h4>Яблоко</h4><span>значение · норма</span></div><div class="apple-grid" id="apple"></div></div>
-        <div class="panel"><div class="ph"><h4>Что происходит</h4><span>события с нейронными коррелятами</span></div><div class="log" id="log"></div></div>
-      </div>
-      <div class="brains" id="brains"></div>
-    </div>
-    <div id="error" class="err hidden"></div>
-  </section>
-
-  <!-- LOGS -->
-  <section id="v-logs" class="hidden">
-    <div class="head"><div><h1>Логи</h1><div class="sub">Для анализа в Excel, Python, R — что произошло, когда и что было в мозге</div></div></div>
-    <div class="grid" style="margin-top:24px" id="logcards"></div>
-  </section>
-</div>
+<div class="wrap" id="view"></div>
 
 <script>
 const $ = s => document.querySelector(s);
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 function b64(s, T) { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); }
-let SCHEMA = null, CFG = null, cur = null, next = 0, polling = false;
-const brainStatic = {}, views = {}, trails = {};
-const color = sex => sex === 'male' ? css('--male') : css('--female');
+const api = async (p, opt) => (await fetch(p, opt)).json();
+const post = (p, body) => api(p, { method: 'POST', body: JSON.stringify(body || {}) });
+const colorSex = sex => sex === 'male' ? css('--male') : sex === 'female' ? css('--female') : css('--muted');
+const CAT_COLORS = { fight: '#dc2626', courtship: '#db2777', mating: '#a855f7', life: '#6b7280', feeding: '#16a34a', distress: '#ea580c',
+  reward: '#22c55e', memory: '#2563eb', movement: '#9ca3af', social: '#0ea5e9', world: '#a16207', info: '#9ca3af' };
+const CAT_RU = { fight: 'драки', courtship: 'ухаживание', mating: 'спаривание и яйца', life: 'рождения и смерти', feeding: 'кормление',
+  distress: 'дистресс (корреляты)', reward: 'награда (корреляты)', memory: 'память', movement: 'перемещения', social: 'контакты', world: 'мир', info: 'прочее' };
+const MODES = { connectome_only: 'только коннектом', connectome_plus_approximations: 'коннектом + приближения', experimental_shortcuts: 'есть обходы' };
+let SCHEMA = null, timers = [];
+function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+function go(h) { location.hash = h; }
+function copy(text) { navigator.clipboard.writeText(text).then(() => toast('скопировано')); }
+function toast(t) { const d = document.createElement('div'); d.textContent = t; d.style.cssText = 'position:fixed;bottom:16px;right:16px;background:var(--ink);color:var(--panel);padding:6px 12px;border-radius:8px;z-index:30'; document.body.appendChild(d); setTimeout(() => d.remove(), 1200); }
+const fmtClock = h => `д${Math.floor(h / 24)} ${(h % 24).toFixed(2)}ч`;
 
-// ---------- views ----------
-function show(v) { for (const t of document.querySelectorAll('.tab')) t.classList.toggle('on', t.dataset.v === v);
-  for (const s of ['setup', 'run', 'logs']) $('#v-' + s).classList.toggle('hidden', s !== v); if (v === 'run') draw(); }
-for (const t of document.querySelectorAll('.tab')) t.onclick = () => show(t.dataset.v);
+// ======================= router =======================
+async function route() {
+  clearTimers();
+  if (!SCHEMA) { try { SCHEMA = await api('/api/schema'); } catch (e) { $('#view').innerHTML = '<div class="err">Нет связи с сервером Fly-Sim (docker compose up или python -m flysim.live), затем откройте http://localhost:8800</div>'; return; } }
+  const [, page, id, extra] = (location.hash || '#/home').split('/');
+  $('#tabs').innerHTML = `<a class="btn ${page === 'home' || !page ? 'on' : ''}" href="#/home">Наблюдения</a><a class="btn ${page === 'new' ? 'on' : ''}" href="#/new">+ Новое</a>` +
+    (id ? `<a class="btn ${page === 'observe' ? 'on' : ''}" href="#/observe/${id}">Наблюдение</a><a class="btn ${page === 'chronicle' ? 'on' : ''}" href="#/chronicle/${id}">Хроника (панель бога)</a>` : '');
+  if (page === 'new') return viewNew();
+  if (page === 'observe') return viewObserve(id, extra);
+  if (page === 'chronicle') return viewChronicle(id);
+  return viewHome();
+}
+addEventListener('hashchange', route);
 
-// ---------- setup form ----------
-const GROUPS = { world: ['Мир', 'var(--green)', 'Мир (размер, сезоны, почва)'],
-  environment: ['Воздух', 'var(--blue)', 'Среда'], apples: ['Яблоки', 'var(--green)', 'Яблоки'],
-  injuries: ['Травмы', 'var(--red)', 'Травмы и схема тела'],
-  flies: ['Мухи', 'var(--violet)', 'Мухи'], hot_zone: ['Жар', 'var(--red)', 'Неприятный стимул'],
-  science: ['Наука', 'var(--orange)', 'Контроли'], run: ['Время', 'var(--ink)', 'Расчёт'] };
-function fmt(v, step) { return step && step < 1 ? (+v).toFixed(String(step).split('.')[1].length) : String(Math.round(v)); }
+// ======================= home =======================
+async function viewHome() {
+  $('#crumb').textContent = 'все наблюдения';
+  const d = await api('/api/sims');
+  const sim = s => `<div class="card"><div class="ch"><h4>${esc(s.title)}</h4><span>${s.running ? '● идёт' : '■ завершено'}</span></div>
+    <div class="cb"><div class="sub">${esc(s.status)}</div><div style="margin:6px 0">${s.kind === 'experiment' ? '<span class="pill">эксперимент</span>' : '<span class="pill">свободная симуляция</span>'}
+    <span class="pill">мух <b>${s.flies}</b></span> <span class="pill">мир <b>${fmtClock(s.clock_h)}</b></span> <span class="pill">событий <b>${s.events}</b></span></div>
+    <a class="btn small dark" href="#/observe/${s.run_id}">Открыть</a> <a class="btn small" href="#/chronicle/${s.run_id}">Хроника</a>
+    <a class="btn small" href="#/observe/${s.run_id}" target="_blank">В новой вкладке ↗</a>
+    ${s.running ? `<button class="btn small" onclick="post('/api/sim/${s.run_id}/stop').then(route)">Стоп</button>` : ''}</div></div>`;
+  $('#view').innerHTML = `<div class="head"><div><h1>Наблюдения</h1><div class="sub">Можно запускать несколько одновременно и открывать каждое в своей вкладке</div></div>
+    <a class="btn dark" href="#/new">+ Новое наблюдение</a></div>
+    <h3 style="margin:6px 0">Идут и недавние</h3><div class="grid">${d.sims.map(sim).join('') || '<div class="sub">пока нет — начните новое</div>'}</div>
+    <h3 style="margin:18px 0 6px">Сохранённые прогоны</h3><div class="grid">${d.saved.map(r => `<div class="card"><div class="ch"><h4>${esc(r.title)}</h4><span>${r.size_mb} МБ</span></div>
+    <div class="cb"><div class="sub">${esc(r.run_id)}</div><a class="btn small" href="#/chronicle/${r.run_id}">Хроника</a> <a class="btn small" href="#/observe/${r.run_id}/0">Повтор</a></div></div>`).join('') || '<div class="sub">нет</div>'}</div>`;
+  timers.push(setTimeout(route, 5000));
+}
+
+// ======================= new run =======================
+let CFG = null, MODE = 'free';
+const GROUP_TITLES = { world: 'Мир (размер, сезоны, почва, ветер)', environment: 'Воздух', apples: 'Яблоки', flies: 'Мухи', injuries: 'Травмы и схема тела',
+  hot_zone: 'Неприятный стимул', science: 'Контроли (научные режимы)', run: 'Расчёт и лимиты' };
+function fmtv(v, step) { return step && step < 1 ? (+v).toFixed(String(step).split('.')[1].length) : String(Math.round(v)); }
+function viewNew() {
+  $('#crumb').textContent = 'новое наблюдение';
+  if (!CFG) CFG = JSON.parse(JSON.stringify(SCHEMA.defaults));
+  const prot = SCHEMA.protocols;
+  $('#view').innerHTML = `<div class="head"><div><h1>Новое наблюдение</h1><div class="sub">Сначала настройте, потом запустите. Поведением управляет симуляция коннектома; приближения помечены</div></div>
+    <div><input id="title" placeholder="название (необязательно)" style="padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--panel)"> <button class="btn" id="reset">Сбросить</button> <button class="btn dark" id="start">Запустить ▸</button></div></div>
+    <div style="margin-bottom:12px"><button class="btn ${MODE === 'free' ? 'on' : ''}" id="m-free">Свободная симуляция</button> <button class="btn ${MODE === 'exp' ? 'on' : ''}" id="m-exp">Готовый эксперимент</button></div>
+    <div id="expbox" class="${MODE === 'exp' ? '' : 'hidden'} card" style="margin-bottom:12px"><div class="ch"><h4>Эксперимент</h4><span>протокол с гипотезой, группами и контролями</span></div><div class="cb">
+      <div class="field"><label>Протокол<select id="e-prot">${Object.keys(prot).map(k => `<option>${k}</option>`).join('')}</select></label><div class="norm" id="e-hyp"></div></div>
+      <div class="field"><label>Группа<select id="e-group"></select></label></div>
+      <div class="field"><label>Seed<input id="e-seed" type="number" value="100" style="width:90px"></label><div class="norm">повторы — разные seed; для статистики — серия (scripts/series.py)</div></div></div></div>
+    <div id="freebox" class="${MODE === 'free' ? '' : 'hidden'}"><div class="grid" id="form"></div></div>`;
+  $('#m-free').onclick = () => { MODE = 'free'; viewNew(); };
+  $('#m-exp').onclick = () => { MODE = 'exp'; viewNew(); };
+  const setProt = () => { const p = prot[$('#e-prot').value]; $('#e-hyp').textContent = `Гипотеза: ${p.hypothesis} Сравнение: ${p.reference}`;
+    $('#e-group').innerHTML = p.groups.map(g => `<option>${g}</option>`).join(''); };
+  $('#e-prot').onchange = setProt; setProt();
+  $('#reset').onclick = () => { CFG = JSON.parse(JSON.stringify(SCHEMA.defaults)); viewNew(); };
+  $('#start').onclick = async () => {
+    $('#start').disabled = true; $('#start').textContent = 'Загрузка мозгов…';
+    let r;
+    if (MODE === 'exp') r = await post('/api/experiment', { protocol: $('#e-prot').value, group: $('#e-group').value, seed: +$('#e-seed').value });
+    else r = await post('/api/start', Object.assign({ title: $('#title').value }, CFG));
+    go('#/observe/' + r.run_id);
+  };
+  if (MODE === 'free') buildForm();
+}
 function buildForm() {
   const f = $('#form'); f.innerHTML = '';
   for (const [g, items] of Object.entries(SCHEMA.schema)) {
-    const [stk, col, title] = GROUPS[g];
-    const card = document.createElement('div'); card.className = 'folder';
-    let html = `<div class="sticker">${title}</div><div class="shape">`;
+    let html = `<div class="card"><div class="ch"><h4>${GROUP_TITLES[g] || g}</h4></div><div class="cb">`;
     for (const [k, s] of Object.entries(items)) {
       const v = CFG[g][k];
-      if (s.type === 'apples') { html += `<div class="norm" style="padding:6px 0">${s.norm}</div><div id="apple-list"></div><button class="btn" id="add-apple" style="margin-top:8px">+ Добавить яблоко</button>`; continue; }
+      if (s.type === 'apples') { html += `<div class="norm">${s.norm}</div><div id="apple-list"></div><button class="btn small" id="add-apple" style="margin-top:6px">+ яблоко</button>`; continue; }
       if (s.type === 'select') html += `<div class="field"><label>${s.label}<select data-g="${g}" data-k="${k}">${Object.entries(s.options).map(([ov, ol]) => `<option value="${ov}" ${ov === v ? 'selected' : ''}>${ol}</option>`).join('')}</select></label>${s.norm ? `<div class="norm">${s.norm}</div>` : ''}</div>`;
       else if (s.type === 'bool') html += `<div class="field"><label class="toggle">${s.label}<input type="checkbox" data-g="${g}" data-k="${k}" ${v ? 'checked' : ''}></label>${s.norm ? `<div class="norm">${s.norm}</div>` : ''}</div>`;
-      else html += `<div class="field"><label>${s.label}<b id="o-${g}-${k}">${fmt(v, s.step)} ${s.unit}</b></label>
-        <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${v}" data-g="${g}" data-k="${k}">${s.norm ? `<div class="norm">Норма: ${s.norm}</div>` : ''}</div>`;
+      else html += `<div class="field"><label>${s.label}<b id="o-${g}-${k}">${fmtv(v, s.step)} ${s.unit}</b></label><input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${v}" data-g="${g}" data-k="${k}">${s.norm ? `<div class="norm">Норма: ${s.norm}</div>` : ''}</div>`;
     }
-    html += `</div>`;
-    card.innerHTML = html; f.appendChild(card);
+    f.insertAdjacentHTML('beforeend', html + '</div></div>');
   }
-  renderApples();
-  const addA = $('#add-apple'); if (addA) addA.onclick = () => { CFG.apples.list.push({ age_days: 0, cut: true, radius_mm: 30, x_mm: 60 * CFG.apples.list.length, y_mm: 0 }); renderApples(); };
-  f.querySelectorAll('.folder > .shape > .field input, .folder > .shape > .field select').forEach(inp => inp.oninput = () => {
-    const { g, k } = inp.dataset, s = SCHEMA.schema[g][k];
+  f.querySelectorAll('[data-g]').forEach(inp => inp.oninput = () => { const { g, k } = inp.dataset, s = SCHEMA.schema[g][k];
     CFG[g][k] = inp.type === 'checkbox' ? inp.checked : (inp.tagName === 'SELECT' ? inp.value : +inp.value);
-    if (inp.type === 'range') $(`#o-${g}-${k}`).textContent = `${fmt(inp.value, s.step)} ${s.unit}`;
-  });
+    if (inp.type === 'range') $(`#o-${g}-${k}`).textContent = `${fmtv(inp.value, s.step)} ${s.unit}`;
+    if (g === 'world' && k === 'size_m') renderApples(); });
+  $('#add-apple').onclick = () => { CFG.apples.list.push({ age_days: 0, cut: true, radius_mm: 30, x_mm: 0, y_mm: 0 }); renderApples(); };
+  renderApples();
 }
-function renderApples() {
-  const box = $('#apple-list'); if (!box) return;
-  const half = CFG.world.size_m * 500;
-  box.innerHTML = CFG.apples.list.map((a, i) => `<div class="field" data-i="${i}">
-    <label><b>Яблоко ${i + 1}</b><button class="btn" data-del="${i}" style="padding:2px 8px">удалить</button></label>
+function appleFields(a, i, half) { half = half || CFG.world.size_m * 500;
+  return `<div class="field" data-i="${i}"><label><b>Яблоко ${i + 1}</b><button class="btn small" data-del="${i}">удалить</button></label>
     <label>Возраст<b>${(+a.age_days).toFixed(1)} дн</b></label><input type="range" min="0" max="30" step="0.5" value="${a.age_days}" data-f="age_days">
     <label class="toggle">Надрезанное<input type="checkbox" ${a.cut ? 'checked' : ''} data-f="cut"></label>
     <label>Радиус<b>${a.radius_mm} мм</b></label><input type="range" min="10" max="40" step="1" value="${a.radius_mm}" data-f="radius_mm">
-    <label>Позиция X<b>${(a.x_mm / 1000).toFixed(2)} м</b></label><input type="range" min="${-half}" max="${half}" step="5" value="${a.x_mm}" data-f="x_mm">
-    <label>Позиция Y<b>${(a.y_mm / 1000).toFixed(2)} м</b></label><input type="range" min="${-half}" max="${half}" step="5" value="${a.y_mm}" data-f="y_mm">
-  </div>`).join('');
-  box.querySelectorAll('[data-f]').forEach(inp => inp.oninput = () => {
-    const i = +inp.closest('[data-i]').dataset.i, f = inp.dataset.f;
-    CFG.apples.list[i][f] = inp.type === 'checkbox' ? inp.checked : +inp.value; renderApples(); });
-  box.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { CFG.apples.list.splice(+b.dataset.del, 1); renderApples(); });
-}
-$('#reset').onclick = () => { CFG = Object.fromEntries(Object.entries(SCHEMA.schema).map(([g, it]) => [g, Object.fromEntries(Object.entries(it).map(([k, s]) => [k, s.default]))])); buildForm(); };
-$('#start').onclick = async () => {
-  if (CFG.flies.males + CFG.flies.females === 0) { alert('Добавьте хотя бы одну муху'); return; }
-  $('#start').disabled = true; $('#start').textContent = 'Запуск…';
-  for (const n of Object.keys(views)) { views[n].card.remove(); delete views[n]; }
-  for (const k of Object.keys(trails)) delete trails[k];
-  cur = null; next = 0;
-  await fetch('/api/start', { method: 'POST', body: JSON.stringify(CFG) });
-  $('#start').disabled = false; $('#start').textContent = 'Запустить ▸';
-  show('run'); if (!polling) poll();
-};
-$('#add-m').onclick = () => fetch('/api/add_fly', { method: 'POST', body: JSON.stringify({ sex: 'male' }) });
-$('#add-f').onclick = () => fetch('/api/add_fly', { method: 'POST', body: JSON.stringify({ sex: 'female' }) });
-$('#stop').onclick = () => fetch('/api/stop', { method: 'POST', body: '{}' });
-$('#pause').onclick = async e => { const r = await (await fetch('/api/pause', { method: 'POST', body: '{}' })).json(); e.target.textContent = r.paused ? 'Продолжить' : 'Пауза'; };
-$('#dl').onclick = () => location.href = '/api/logs/all.zip';
+    <label>X<b>${(a.x_mm / 1000).toFixed(2)} м</b></label><input type="range" min="${-half}" max="${half}" step="5" value="${a.x_mm}" data-f="x_mm">
+    <label>Y<b>${(a.y_mm / 1000).toFixed(2)} м</b></label><input type="range" min="${-half}" max="${half}" step="5" value="${a.y_mm}" data-f="y_mm"></div>`; }
+function renderApples() { const box = $('#apple-list'); if (!box) return;
+  box.innerHTML = CFG.apples.list.map((a, i) => appleFields(a, i)).join('');
+  box.querySelectorAll('[data-f]').forEach(inp => inp.oninput = () => { const i = +inp.closest('[data-i]').dataset.i;
+    CFG.apples.list[i][inp.dataset.f] = inp.type === 'checkbox' ? inp.checked : +inp.value; renderApples(); });
+  box.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { CFG.apples.list.splice(+b.dataset.del, 1); renderApples(); }); }
 
-// logs view
-const LOGS = [['Всё архивом', 'all.zip', 'var(--ink)', 'Архив', 'события, ряды, яблоко, условия, допущения'],
-  ['События', 'events.txt', 'var(--violet)', 'Что было', 'читаемый журнал «произошло X»'],
-  ['События (JSON)', 'events.jsonl', 'var(--blue)', 'Для кода', 'одно событие на строку, с данными'],
-  ['Ряды', 'timeseries.csv', 'var(--orange)', 'Каждые 0.1 с', 'состояния и частоты нейронов по мухам'],
-  ['Яблоко', 'apple.csv', 'var(--green)', 'Порча', 'сахар, спирт, уксус, микробы, плесень, яйца']];
-$('#logcards').innerHTML = LOGS.map(([t, f, c, st, n]) => `<a class="folder" href="/api/logs/${f}" style="color:inherit;text-decoration:none">
-  <div class="sticker">${t} · ${f}</div><p class="note" style="padding-top:8px">${n}</p></a>`).join('');
-
-// ---------- drawing helpers ----------
+// ======================= drawing =======================
 function fit(c) { const r = c.getBoundingClientRect(), d = devicePixelRatio || 1; if (c.width !== Math.round(r.width * d)) { c.width = Math.round(r.width * d); c.height = Math.round(r.height * d); } }
-function drag(cv, onMove) { let d = null;
+function drag(cv, onMove, redraw) { let d = null;
   cv.addEventListener('pointerdown', e => { d = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); });
-  cv.addEventListener('pointermove', e => { if (!d) return; onMove(e.clientX - d[0], e.clientY - d[1]); d = [e.clientX, e.clientY]; draw(); });
+  cv.addEventListener('pointermove', e => { if (!d) return; onMove(e.clientX - d[0], e.clientY - d[1]); d = [e.clientX, e.clientY]; redraw(); });
   cv.addEventListener('pointerup', () => d = null);
-  cv.addEventListener('wheel', e => { e.preventDefault(); onMove(0, 0, e.deltaY); draw(); }, { passive: false }); }
+  cv.addEventListener('wheel', e => { e.preventDefault(); onMove(0, 0, e.deltaY); redraw(); }, { passive: false }); }
+const brainStatic = {};
+async function brainOf(ds) { if (!brainStatic[ds]) { brainStatic[ds] = 'loading'; const b = await api('/api/brain/' + ds);
+  brainStatic[ds] = { n: b.n, xyz: b64(b.xyz, Float32Array), region: b64(b.region, Uint8Array) }; } return brainStatic[ds]; }
+function rnd(seed) { const x = Math.sin(seed * 12.9898) * 43758.5453; return x - Math.floor(x); }
 
-const sc = $('#scene'), sx = sc.getContext('2d'); let az = -0.6, el = 0.85, zoom = 1;
-drag(sc, (dx, dy, wh) => { az += dx * 0.01; el = Math.min(1.5, Math.max(0.1, el + dy * 0.01)); if (wh) zoom *= wh > 0 ? 0.9 : 1.1; });
-function proj(p, W, H, s) { const ca = Math.cos(az), sa = Math.sin(az), ce = Math.cos(el), se = Math.sin(el);
-  const x = p[0] * ca - p[1] * sa, y = p[0] * sa + p[1] * ca; return [W / 2 + x * s, H / 2 + (y * ce - p[2] * se) * s * 0.95]; }
-function drawArena() {
-  fit(sc); const W = sc.width, H = sc.height; sx.clearRect(0, 0, W, H); if (!cur) return;
-  const A = cur.arena_mm || 55, s = Math.min(W, H) / (2.6 * A) * zoom, dpr = devicePixelRatio || 1;
+function drawArena(cv, st, cur, trails) {
+  fit(cv); const sx = cv.getContext('2d'), W = cv.width, H = cv.height, dpr = devicePixelRatio || 1; sx.clearRect(0, 0, W, H); if (!cur) return;
+  const A = cur.arena_mm || 55, s = Math.min(W, H) / (2.6 * A) * st.zoom;
+  const proj = p => { const ca = Math.cos(st.az), sa = Math.sin(st.az), ce = Math.cos(st.el), se = Math.sin(st.el);
+    const x = p[0] * ca - p[1] * sa, y = p[0] * sa + p[1] * ca; return [W / 2 + x * s, H / 2 + (y * ce - p[2] * se) * s * 0.95]; };
   sx.strokeStyle = css('--folder'); sx.lineWidth = 1;
-  for (let g = -A; g <= A + 1e-6; g += A / 4) { for (const [a, b] of [[[g, -A, 0], [g, A, 0]], [[-A, g, 0], [A, g, 0]]]) {
-    const p = proj(a, W, H, s), q = proj(b, W, H, s); sx.beginPath(); sx.moveTo(...p); sx.lineTo(...q); sx.stroke(); } }
-  for (const z of cur.zones) { sx.fillStyle = 'rgba(229,72,77,0.22)'; sx.beginPath();
-    for (let k = 0; k <= 48; k++) { const a = k / 48 * 2 * Math.PI, p = proj([z.center[0] + z.radius * Math.cos(a), z.center[1] + z.radius * Math.sin(a), 0], W, H, s); k ? sx.lineTo(...p) : sx.moveTo(...p); } sx.fill(); }
-  let p = null, R = 0;
-  for (const ap of (cur.apples || [cur.apple])) {
-    p = proj(ap.center, W, H, s); R = Math.max(2, ap.radius * s);
-    const gr = sx.createRadialGradient(p[0] - R * .3, p[1] - R * .35, R * .1, p[0], p[1], R); gr.addColorStop(0, ap.color_light); gr.addColorStop(1, ap.color);
+  for (let g = -A; g <= A + 1e-6; g += A / 4) for (const [a, b] of [[[g, -A, 0], [g, A, 0]], [[-A, g, 0], [A, g, 0]]]) { const p = proj(a), q = proj(b); sx.beginPath(); sx.moveTo(...p); sx.lineTo(...q); sx.stroke(); }
+  for (const z of cur.zones || []) { sx.fillStyle = z.active === false ? 'rgba(220,38,38,0.07)' : 'rgba(220,38,38,0.22)'; sx.beginPath();
+    for (let k = 0; k <= 48; k++) { const a = k / 48 * 2 * Math.PI, p = proj([z.center[0] + z.radius * Math.cos(a), z.center[1] + z.radius * Math.sin(a), 0]); k ? sx.lineTo(...p) : sx.moveTo(...p); } sx.fill(); }
+  (cur.apples || [cur.apple]).forEach((ap, ai) => {
+    const p = proj(ap.center), R = Math.max(2, ap.radius * s);
+    const sh = proj([ap.center[0], ap.center[1], 0]); sx.fillStyle = 'rgba(0,0,0,0.12)'; sx.beginPath(); sx.ellipse(sh[0], sh[1], R, R * 0.35, 0, 0, 7); sx.fill();
+    const gr = sx.createRadialGradient(p[0] - R * .35, p[1] - R * .4, R * .08, p[0], p[1], R); gr.addColorStop(0, ap.color_light); gr.addColorStop(0.7, ap.color); gr.addColorStop(1, 'rgba(40,25,10,0.9)');
     sx.fillStyle = gr; sx.beginPath(); sx.arc(p[0], p[1], R, 0, 7); sx.fill();
-    if (ap.mold > 0.01) { sx.fillStyle = 'rgba(120,150,170,0.75)'; for (let k = 0; k < Math.round(ap.mold * 40); k++) { const a = k * 2.399, rr = R * (0.2 + 0.7 * ((k * 53) % 17) / 17);
-      sx.beginPath(); sx.arc(p[0] + rr * Math.cos(a), p[1] + rr * Math.sin(a) * .9, R * (0.05 + 0.08 * ap.mold), 0, 7); sx.fill(); } }
-  }
-  p = proj(cur.apple.center, W, H, s); R = cur.apple.radius * s;
-  const br = cur.brood, nb = br.egg + br.larva + br.pupa;
-  for (let k = 0; k < Math.min(nb, 80); k++) { const a = k * 2.4, rr = R * (0.25 + 0.6 * ((k * 37) % 10) / 10);
+    const wx = p[0] + R * 0.25, wy = p[1] - R * 0.15;
+    if (ap.cut) { sx.fillStyle = 'rgba(245,230,180,0.6)'; sx.beginPath(); sx.ellipse(wx, wy, R * 0.28, R * 0.18, 0.4, 0, 7); sx.fill(); }
+    // Penicillium colonies: white rim, blue-green centre; they spread from the wound (or random micro-wounds on intact fruit)
+    const m = ap.mold || 0, nSpots = Math.round(m * 60);
+    for (let k = 0; k < nSpots; k++) { const a = rnd(ai * 97 + k) * 6.283, rr = R * Math.sqrt(rnd(ai * 31 + k * 7)) * Math.min(1, 0.3 + m);
+      const cx = ap.cut ? wx : p[0] + R * 0.5 * (rnd(ai + k * 1.7) - 0.5), cy = ap.cut ? wy : p[1] + R * 0.5 * (rnd(ai + k * 2.3) - 0.5);
+      const x = cx + rr * Math.cos(a), y = cy + rr * Math.sin(a) * 0.9;
+      if (Math.hypot(x - p[0], y - p[1]) > R * 0.96) continue;
+      const rs = R * (0.03 + 0.07 * rnd(k * 3.1 + ai)) * (0.6 + m);
+      sx.fillStyle = 'rgba(240,240,235,0.85)'; sx.beginPath(); sx.arc(x, y, rs * 1.3, 0, 7); sx.fill();
+      sx.fillStyle = 'rgba(70,130,120,0.92)'; sx.beginPath(); sx.arc(x, y, rs, 0, 7); sx.fill(); }
+    sx.fillStyle = css('--muted'); sx.font = `${11 * dpr}px sans-serif`; sx.fillText(`яблоко ${ai + 1}${m > 0.05 ? ' · плесень ' + Math.round(m * 100) + '%' : ''}`, p[0] - R * 0.6, p[1] + R + 12 * dpr);
+  });
+  for (const c of cur.corpses || []) { const q = proj(c.pos); sx.fillStyle = 'rgba(120,120,120,.8)'; sx.beginPath(); sx.arc(q[0], q[1], 3 * dpr, 0, 7); sx.fill();
+    sx.fillStyle = css('--muted'); sx.font = `${11 * dpr}px sans-serif`; sx.fillText(`✝ ${c.name} (${c.cause})`, q[0] + 4, q[1] - 4); }
+  const br = cur.brood || { egg: 0, larva: 0, pupa: 0 }, nb = br.egg + br.larva + br.pupa, ap0 = (cur.apples || [cur.apple])[0];
+  for (let k = 0; k < Math.min(nb, 80); k++) { const p = proj(ap0.center), R = ap0.radius * s, a = k * 2.4, rr = R * (0.25 + 0.6 * ((k * 37) % 10) / 10);
     sx.fillStyle = k < br.egg ? '#fffbe8' : (k < br.egg + br.larva ? '#f1ecd2' : '#8a5a3c'); sx.beginPath(); sx.arc(p[0] + rr * Math.cos(a), p[1] + rr * Math.sin(a) * .8, 2.2 * dpr, 0, 7); sx.fill(); }
-  for (const [n, f] of Object.entries(cur.flies)) {
-    const tr = trails[n] || []; sx.strokeStyle = color(f.sex); sx.globalAlpha = .35; sx.lineWidth = 1.5 * dpr; sx.beginPath();
-    tr.forEach((pp, k) => { const q = proj(pp, W, H, s); k ? sx.lineTo(...q) : sx.moveTo(...q); }); sx.stroke(); sx.globalAlpha = 1;
-    const q = proj(f.pos, W, H, s), h = proj([f.pos[0] + 3 * Math.cos(f.yaw), f.pos[1] + 3 * Math.sin(f.yaw), f.pos[2]], W, H, s), r = Math.max(5 * dpr, 1.25 * s);
-    if (f.mode === 'fly') { const z = proj([f.pos[0], f.pos[1], 0], W, H, s); sx.fillStyle = 'rgba(0,0,0,.12)'; sx.beginPath(); sx.arc(z[0], z[1], r, 0, 7); sx.fill(); }
-    sx.fillStyle = color(f.sex); sx.beginPath(); sx.arc(q[0], q[1], r, 0, 7); sx.fill();
-    sx.strokeStyle = color(f.sex); sx.lineWidth = 2 * dpr; sx.beginPath(); sx.moveTo(...q); sx.lineTo(...h); sx.stroke();
-    if (f.wing > .3) { sx.lineWidth = 1 * dpr; sx.beginPath(); sx.arc(q[0], q[1], r * 2, 0, 7); sx.stroke(); }
+  for (const [n, f] of Object.entries(cur.flies || {})) {
+    const tr = trails[n] || []; sx.strokeStyle = colorSex(f.sex); sx.globalAlpha = .35; sx.lineWidth = 1.5 * dpr; sx.beginPath();
+    tr.forEach((pp, k) => { const q = proj(pp); k ? sx.lineTo(...q) : sx.moveTo(...q); }); sx.stroke(); sx.globalAlpha = 1;
+    const q = proj(f.pos), h = proj([f.pos[0] + 3 * Math.cos(f.yaw), f.pos[1] + 3 * Math.sin(f.yaw), f.pos[2]]), r = Math.max(5 * dpr, 1.25 * s);
+    if (f.mode === 'fly') { const z = proj([f.pos[0], f.pos[1], 0]); sx.fillStyle = 'rgba(0,0,0,.12)'; sx.beginPath(); sx.arc(z[0], z[1], r, 0, 7); sx.fill(); }
+    sx.fillStyle = colorSex(f.sex); sx.beginPath(); sx.arc(q[0], q[1], r, 0, 7); sx.fill();
+    sx.strokeStyle = colorSex(f.sex); sx.lineWidth = 2 * dpr; sx.beginPath(); sx.moveTo(...q); sx.lineTo(...h); sx.stroke();
+    if (f.wing > .3) { sx.lineWidth = dpr; sx.beginPath(); sx.arc(q[0], q[1], r * 2, 0, 7); sx.stroke(); }
     if (f.proboscis) { sx.fillStyle = css('--orange'); sx.beginPath(); sx.arc(h[0], h[1], 3 * dpr, 0, 7); sx.fill(); }
     if (f.copulating) { sx.strokeStyle = css('--red'); sx.lineWidth = 2 * dpr; sx.beginPath(); sx.arc(q[0], q[1], r * 2.6, 0, 7); sx.stroke(); }
-    sx.fillStyle = css('--ink'); sx.font = `500 ${12 * dpr}px -apple-system, sans-serif`; sx.fillText(n, q[0] + r + 4, q[1] - r);
+    sx.fillStyle = css('--ink'); sx.font = `500 ${12 * dpr}px sans-serif`; sx.fillText(n, q[0] + r + 4, q[1] - r);
   }
 }
-
-async function ensureBrain(n, sex) {
-  if (views[n]) return;
-  if (!brainStatic[sex]) { brainStatic[sex] = 'loading'; const b = await (await fetch('/api/brain/' + sex)).json();
-    brainStatic[sex] = { n: b.n, xyz: b64(b.xyz, Float32Array), region: b64(b.region, Uint8Array) }; }
-  if (brainStatic[sex] === 'loading' || views[n]) return;
-  const card = document.createElement('div'); card.className = 'panel brain';
-  card.innerHTML = `<div class="ph"><h4>Мозг ${n}<span class="badge mode"></span></h4><span class="ds"></span></div><canvas></canvas><div class="stats"></div><div class="legs"></div>`;
-  $('#brains').appendChild(card); const cv = card.querySelector('canvas');
-  views[n] = { card, cv, ctx: cv.getContext('2d'), stats: card.querySelector('.stats'), legs: card.querySelector('.legs'),
-    mode: card.querySelector('.mode'), ds: card.querySelector('.ds'), az: 0, el: .15, zoom: 1, sex };
-  drag(cv, (dx, dy, wh) => { const v = views[n]; v.az += dx * .01; v.el = Math.max(-1.4, Math.min(1.4, v.el + dy * .01)); if (wh) v.zoom *= wh > 0 ? .9 : 1.1; });
-}
-function drawBrain(n, f) {
-  const v = views[n], B = brainStatic[v.sex]; if (!B || B === 'loading') return; fit(v.cv);
-  const W = v.cv.width, H = v.cv.height, c = v.ctx, dpr = devicePixelRatio || 1; c.fillStyle = css('--brain'); c.fillRect(0, 0, W, H);
+function drawBrain(v, f) {
+  const B = brainStatic[f.ds || f.sex]; if (!B || B === 'loading') return; fit(v.cv);
+  const W = v.cv.width, H = v.cv.height, c = v.cv.getContext('2d'), dpr = devicePixelRatio || 1; c.fillStyle = css('--brain'); c.fillRect(0, 0, W, H);
   const ca = Math.cos(v.az), sa = Math.sin(v.az), ce = Math.cos(v.el), se = Math.sin(v.el), S = Math.min(W, H) * .5 * v.zoom;
   const P = i => { const x = B.xyz[3 * i], y = B.xyz[3 * i + 1], z = B.xyz[3 * i + 2]; const X = x * ca - z * sa, Z = x * sa + z * ca; return [W / 2 + X * S, H / 2 + (y * ce - Z * se) * S, x]; };
   c.fillStyle = 'rgba(170,170,190,.10)'; const st = Math.max(1, Math.floor(B.n / 24000));
   for (let i = 0; i < B.n; i += st) { const q = P(i); if (!isNaN(q[2])) c.fillRect(q[0], q[1], dpr, dpr); }
-  const idx = b64(f.idx, Uint32Array), val = b64(f.val, Uint8Array);
-  for (let j = 0; j < idx.length; j++) { const i = idx[j], q = P(i); if (isNaN(q[2])) continue;
-    c.fillStyle = SCHEMA.region_colors[B.region[i]]; c.globalAlpha = Math.min(1, .35 + val[j] / 4);
-    const r = (1.1 + Math.min(2, val[j] / 3)) * dpr; c.fillRect(q[0] - r / 2, q[1] - r / 2, r, r); }
-  c.globalAlpha = 1;
-  const R = f.rates, S2 = (k, x) => `<div class="stat">${k}<b>${x}</b></div>`;
-  v.stats.innerHTML = [S2('Активных нейронов', f.n_active.toLocaleString('ru')),
-    S2('Где', `${f.mode === 'fly' ? 'летит' : 'идёт'} · ${f.surface === 'apple' ? 'яблоко' : 'пол'}`),
-    S2('Голод', f.hunger.toFixed(2)), S2('Зоб, мкл', f.crop_ul.toFixed(3)), S2('Здоровье', f.health.toFixed(2)),
-    S2('Ест (MN9)', `${f.proboscis ? 'да' : 'нет'} · ${R.per}`), S2('Награда PAM', R.pam + ' Гц'), S2('Наказание PPL1', R.ppl1 + ' Гц'),
-    S2('Песня pIP10', R.song + ' Гц'), S2('Возбуждение P1', R.arousal_P1 + ' Гц'), S2('Готовность DNp37', R.receptive + ' Гц'),
-    S2('Яйцеклад oviDN', (R.ovi ?? 0) + ' Гц'), S2('Спарена', f.mated ? 'да' : 'нет'), S2('Память KC→MBON', f.mbon_w_min ?? '—'),
-    S2('Температура', f.temp + ' °C'), S2('Возраст', f.age_d + ' дн')].join('');
-  const MODES = { connectome_only: 'только коннектом', connectome_plus_approximations: 'коннектом + приближения', experimental_shortcuts: 'есть обходы' };
-  v.mode.textContent = MODES[f.mode] || f.mode; v.mode.classList.toggle('warn', f.mode === 'experimental_shortcuts');
-  v.ds.textContent = f.dataset;
-  const ST = { intact: 'цела', paralyzed: 'парализ.', amputated: 'нет' }, LN = { lf: 'Л пер', lm: 'Л ср', lh: 'Л зад', rf: 'П пер', rm: 'П ср', rh: 'П зад' };
-  const sc = f.schema;
-  v.legs.innerHTML = Object.entries(sc.legs).map(([l, o]) => `<div>${LN[l]}: <b>${ST[o.state]}</b> · опора ${(o.contact * 100).toFixed(0)}%</div>`).join('') +
-    `<div>крылья: <b>${sc.wings.left * 100}% / ${sc.wings.right * 100}%</b></div><div>усики: <b>${sc.antenna.left === 'intact' ? 'Л' : '—'} ${sc.antenna.right === 'intact' ? 'П' : '—'}</b></div><div>глаза: <b>${sc.eye.left === 'open' ? 'Л' : '—'} ${sc.eye.right === 'open' ? 'П' : '—'}</b></div>`;
+  if (f.idx) { const idx = b64(f.idx, Uint32Array), val = b64(f.val, Uint8Array);
+    for (let j = 0; j < idx.length; j++) { const i = idx[j], q = P(i); if (isNaN(q[2])) continue;
+      c.fillStyle = SCHEMA.region_colors[B.region[i]]; c.globalAlpha = Math.min(1, .35 + val[j] / 4);
+      const r = (1.1 + Math.min(2, val[j] / 3)) * dpr; c.fillRect(q[0] - r / 2, q[1] - r / 2, r, r); } c.globalAlpha = 1; }
+  else { c.fillStyle = css('--muted'); c.font = `${12 * dpr}px sans-serif`; c.fillText('облегчённый кадр: полная активность мозга хранится раз в секунду и вокруг событий', 10 * dpr, 20 * dpr); }
 }
-function drawApple() {
-  if (!cur) return; const st = cur.apple.state, N = SCHEMA.apple_norms;
-  const max = { sugar: 13, ethanol: 6, acetic: 6, yeast: 1, aab: 1, mold: 1, patulin: 1 };
-  $('#apple').innerHTML = Object.entries(N).map(([k, [lab, unit, norm]]) => `<div class="stat">${lab}<b>${(+st[k]).toFixed(2)} ${unit}</b>
-    <div class="meter"><i style="width:${Math.min(100, 100 * st[k] / max[k])}%"></i></div><div style="margin-top:4px">${norm}</div></div>`).join('');
-}
-function draw() { drawArena(); drawApple(); if (cur) for (const [n, f] of Object.entries(cur.flies)) if (views[n]) drawBrain(n, f); }
+function flyStats(f) { const R = f.rates || {}, S2 = (k, x) => `<div class="stat">${k}<b>${x}</b></div>`;
+  return [S2('Активных нейронов', (f.n_active || 0).toLocaleString('ru')), S2('Где', `${f.mode === 'fly' ? 'летит' : 'идёт'} · ${f.surface === 'apple' ? 'яблоко' : f.surface === 'floor' ? 'пол' : 'воздух'}`),
+    S2('Голод', (+f.hunger).toFixed(2)), S2('Зоб, мкл', (+f.crop_ul).toFixed(3)), S2('Здоровье', (+f.health).toFixed(2)), S2('Ест (MN9)', `${f.proboscis ? 'да' : 'нет'} · ${R.per ?? 0}`),
+    S2('Награда PAM', (R.pam ?? 0) + ' Гц'), S2('Наказание PPL1', (R.ppl1 ?? 0) + ' Гц'), S2('Песня pIP10', (R.song ?? 0) + ' Гц'), S2('Возбуждение P1', (R.arousal_P1 ?? 0) + ' Гц'),
+    S2('Готовность DNp37', (R.receptive ?? 0) + ' Гц'), S2('Яйцеклад oviDN', (R.ovi ?? 0) + ' Гц'), S2('Спарена', f.mated ? 'да' : 'нет'), S2('Память KC→MBON', f.mbon_w_min ?? '—'),
+    S2('Температура', f.temp + ' °C'), S2('Возраст', f.age_d + ' дн')].join(''); }
+function regionBars(f) { if (!f.regions) return ''; const tot = f.regions.reduce((a, b) => a + b, 0) || 1;
+  return `<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;margin:4px 12px 8px">${f.regions.map((v, k) => `<div title="${SCHEMA.region_names[k]}: ${Math.round(100 * v / tot)}%" style="width:${100 * v / tot}%;background:${SCHEMA.region_colors[k]}"></div>`).join('')}</div>`; }
 
-// ---------- polling ----------
-async function poll() {
-  polling = true;
-  try {
-    const st = await (await fetch('/api/state')).json();
-    $('#status').textContent = st.status;
-    $('#error').classList.toggle('hidden', !st.error); if (st.error) $('#error').textContent = st.error;
-    const r = await (await fetch('/api/frames?since=' + next)).json();
-    for (const fr of r.frames) { cur = fr; next = fr.i + 1;
-      for (const [n, f] of Object.entries(fr.flies)) { (trails[n] = trails[n] || []).push(f.pos); if (trails[n].length > 400) trails[n].shift(); } }
-    if (cur) {
-      for (const [n, f] of Object.entries(cur.flies)) ensureBrain(n, f.sex);
-      for (const n of Object.keys(views)) if (!cur.flies[n]) { views[n].card.remove(); delete views[n]; }
-      $('#day').textContent = `день ${Math.floor(cur.clock_h / 24)} · ${(cur.clock_h % 24).toFixed(1)} ч`;
-      $('#sess').textContent = `${cur.t.toFixed(1)} с`;
-      const b = cur.brood, pl = cur.plants;
-      const plt = pl ? ` · семена: ${Object.entries(pl.seeds).map(([k, v]) => ({ in_fruit: 'в плоде', dormant: 'спят', stratified: 'готовы', germinated: 'проросли', dead: 'погибли' }[k] || k) + ' ' + v).join(', ')}${pl.seedlings ? ` · сеянцы ${pl.seedlings}, выше всех ${pl.tallest_cm} см` : ''}` : '';
-      $('#brood').textContent = `Яиц ${b.egg} · личинок ${b.larva} · куколок ${b.pupa} · вылупилось ${cur.born} · мух с мозгом ${Object.keys(cur.flies).length} · яблок ${(cur.apples || []).length} · мир ${(2 * cur.arena_mm / 1000).toFixed(2)} м${plt}`;
-      $('#envinfo').textContent = `O₂ ${cur.env.o2_pct}% · CO₂ ${cur.env.co2_ppm} ppm · ${cur.env.temp_c} °C`;
-      $('#legend').innerHTML = Object.entries(cur.flies).map(([n, f]) => `<span><span class="dot" style="background:${color(f.sex)}"></span>${n}</span>`).join('') +
-        Object.entries(SCHEMA.region_names).map(([k, v]) => `<span><span class="dot" style="background:${SCHEMA.region_colors[k]}"></span>${v}</span>`).join('');
-      const ev = (cur.events || []).slice().reverse();
-      $('#log').innerHTML = ev.map(e => `<div><time>д${Math.floor(e.clock_h / 24)} ${e.t.toFixed(1)} с</time><span><b style="color:${color(e.sex)}">${e.fly}</b> ${e.text}</span></div>`).join('') || '<div>событий пока нет</div>';
-      if (!$('#v-run').classList.contains('hidden')) draw();
-    }
-  } catch (e) { $('#status').textContent = 'нет связи с сервером'; }
-  setTimeout(poll, 300);
-}
-
-(async () => {
-  try { SCHEMA = await (await fetch('/api/schema')).json(); }
-  catch (e) { $('#form').innerHTML = '<div class="err">Нет связи с сервером Fly-Sim. Запустите <b>docker compose up</b> (или <b>python -m flysim.live</b>) и откройте <b>http://localhost:8800</b>.</div>'; return; }
-  const st = await (await fetch('/api/state')).json();
-  CFG = st.config; buildForm();
-  if (st.running) { show('run'); }
+// ======================= observe (live or replay) =======================
+async function viewObserve(rid, frameArg) {
+  const replay = frameArg !== undefined;
+  $('#crumb').textContent = (replay ? 'повтор · ' : 'наблюдение · ') + rid;
+  let state = { kind: 'saved', title: rid, running: false, status: 'архив' };
+  try { const s = await api(`/api/sim/${rid}/state`); if (s.title) state = s; } catch (e) {}
+  $('#view').innerHTML = `<div class="head"><div><h1>${esc(state.title || 'Наблюдение')}</h1><div class="sub" id="status">${esc(state.status || '')}</div></div>
+    <div><span class="pill">мир <b id="day">—</b></span> <span class="pill">сессия <b id="sess">—</b></span> <span class="pill">кадр <b id="fi">—</b></span></div></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px" id="ctrl"></div>
+    <div id="replaybar" class="${replay ? '' : 'hidden'} card" style="margin-bottom:10px"><div class="cb" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn small" id="rb10">◀◀ 10</button><button class="btn small" id="rb1">◀</button><button class="btn small" id="rplay">▶</button><button class="btn small" id="rf1">▶</button><button class="btn small" id="rf10">10 ▶▶</button>
+      <input type="range" id="rslider" min="0" value="0" style="flex:1;min-width:200px">${state.running ? `<a class="btn small" href="#/observe/${rid}">к живому</a>` : ''}</div></div>
+    <div class="run"><div style="display:grid;gap:12px;align-content:start">
+      <div class="card"><div class="ch"><h4>Арена</h4><span id="envinfo"></span></div><canvas id="scene"></canvas><div class="legend" id="legend"></div></div>
+      <div class="card"><div class="ch"><h4>Яблоки</h4><span>значение · норма</span></div><div class="cb" id="apples"></div></div>
+      <div class="card"><div class="ch"><h4>Последние события</h4><a class="btn small" href="#/chronicle/${rid}">вся хроника →</a></div><div class="evlist" id="log" style="max-height:260px"></div></div>
+    </div><div style="display:grid;gap:12px;align-content:start" id="brains"></div></div>
+    <div id="error" class="err hidden"></div>`;
+  const C = $('#ctrl');
+  if (state.running && state.kind === 'free' && !replay) {
+    C.innerHTML = `<button class="btn" id="add-m">+ самец</button><button class="btn" id="add-f">+ самка</button><button class="btn" id="add-a">+ яблоко</button>
+      <button class="btn" id="pause">Пауза</button><button class="btn" id="stop">Стоп</button><a class="btn" href="#/observe/${rid}/0">Повтор с начала</a><a class="btn dark" href="/api/sim/${rid}/logs/all.zip">Скачать логи</a>`;
+    $('#add-m').onclick = () => post(`/api/sim/${rid}/add_fly`, { sex: 'male' }).then(() => toast('самец будет добавлен'));
+    $('#add-f').onclick = () => post(`/api/sim/${rid}/add_fly`, { sex: 'female' }).then(() => toast('самка будет добавлена'));
+    $('#add-a').onclick = () => addAppleDialog(rid);
+    $('#pause').onclick = async e => { const r = await post(`/api/sim/${rid}/pause`); e.target.textContent = r.paused ? 'Продолжить' : 'Пауза'; };
+    $('#stop').onclick = () => post(`/api/sim/${rid}/stop`);
+  } else if (state.kind === 'free') C.innerHTML = `<a class="btn" href="/api/sim/${rid}/logs/all.zip">Скачать логи</a>`;
+  const scene = { az: -0.6, el: 0.85, zoom: 1 }, trails = {}, views = {};
+  let cur = null, next = 0, idxRep = +frameArg || 0, playing = false, nFrames = 0;
+  const cv = $('#scene');
+  const redraw = () => { drawArena(cv, scene, cur, trails); if (cur) for (const [n, f] of Object.entries(cur.flies || {})) if (views[n]) { drawBrain(views[n], f); views[n].stats.innerHTML = flyStats(f); views[n].bars.innerHTML = regionBars(f); legsOf(views[n], f); } };
+  drag(cv, (dx, dy, wh) => { scene.az += dx * .01; scene.el = Math.min(1.5, Math.max(.1, scene.el + dy * .01)); if (wh) scene.zoom *= wh > 0 ? .9 : 1.1; }, redraw);
+  async function ensure(n, f) { if (views[n]) return; views[n] = 'pending'; await brainOf(f.ds || f.sex);
+    const card = document.createElement('div'); card.className = 'card brain';
+    card.innerHTML = `<div class="ch"><h4>Мозг ${esc(n)} <span class="badge mode"></span></h4><span><span class="ds"></span> <button class="btn small pp">паспорт</button></span></div><canvas></canvas><div class="bars"></div><div class="stats"></div><div class="legs"></div>`;
+    $('#brains').appendChild(card); const v = { card, cv: card.querySelector('canvas'), stats: card.querySelector('.stats'), bars: card.querySelector('.bars'), legs: card.querySelector('.legs'), az: 0, el: .15, zoom: 1 };
+    card.querySelector('.pp').onclick = () => passport(rid, n);
+    drag(v.cv, (dx, dy, wh) => { v.az += dx * .01; v.el = Math.max(-1.4, Math.min(1.4, v.el + dy * .01)); if (wh) v.zoom *= wh > 0 ? .9 : 1.1; }, redraw);
+    views[n] = v; redraw(); }
+  function legsOf(v, f) { const m = v.card.querySelector('.mode'); m.textContent = MODES[f.mode_mech] || ''; m.classList.toggle('warn', f.mode_mech === 'experimental_shortcuts');
+    v.card.querySelector('.ds').textContent = f.dataset || ''; const sc = f.schema; if (!sc) return;
+    const ST = { intact: 'цела', paralyzed: 'парализ.', amputated: 'нет' }, LN = { lf: 'Л пер', lm: 'Л ср', lh: 'Л зад', rf: 'П пер', rm: 'П ср', rh: 'П зад' };
+    v.legs.innerHTML = Object.entries(sc.legs).map(([l, o]) => `<div>${LN[l]}: <b>${ST[o.state]}</b> · опора ${(o.contact * 100).toFixed(0)}%</div>`).join('') +
+      `<div>крылья: <b>${Math.round(sc.wings.left * 100)}% / ${Math.round(sc.wings.right * 100)}%</b></div><div>усики: <b>${sc.antenna.left === 'intact' ? 'Л' : '—'} ${sc.antenna.right === 'intact' ? 'П' : '—'}</b></div><div>глаза: <b>${sc.eye.left === 'open' ? 'Л' : '—'} ${sc.eye.right === 'open' ? 'П' : '—'}</b></div>`; }
+  function show(fr, events) {
+    cur = fr; for (const [n, f] of Object.entries(fr.flies || {})) { (trails[n] = trails[n] || []).push(f.pos); if (trails[n].length > 400) trails[n].shift(); if (!views[n]) ensure(n, f); }
+    for (const n of Object.keys(views)) if (!fr.flies[n] && views[n] !== 'pending') { views[n].card.remove(); delete views[n]; }
+    $('#day').textContent = fmtClock(fr.clock_h || 0); $('#sess').textContent = (fr.t || 0).toFixed(1) + ' с'; $('#fi').textContent = fr.i;
+    if (fr.env) $('#envinfo').textContent = `O₂ ${fr.env.o2_pct}% · CO₂ ${fr.env.co2_ppm} ppm · ${fr.env.temp_c} °C · мир ${(2 * (fr.arena_mm || 55) / 1000).toFixed(2)} м`;
+    const b = fr.brood || {}, pl = fr.plants;
+    $('#legend').innerHTML = Object.entries(fr.flies || {}).map(([n, f]) => `<span><span class="dot" style="background:${colorSex(f.sex)}"></span>${esc(n)}</span>`).join('') +
+      Object.entries(SCHEMA.region_names).map(([k, v]) => `<span><span class="dot" style="background:${SCHEMA.region_colors[k]}"></span>${v}</span>`).join('') +
+      `<span>яиц ${b.egg ?? 0} · личинок ${b.larva ?? 0} · куколок ${b.pupa ?? 0}${pl ? ` · сеянцев ${pl.seedlings} (${pl.tallest_cm} см)` : ''}</span>`;
+    const N = SCHEMA.apple_norms, max = { sugar: 13, ethanol: 6, acetic: 6, yeast: 1, aab: 1, mold: 1, patulin: 1 };
+    $('#apples').innerHTML = (fr.apples || [fr.apple]).map((ap, i) => `<div style="margin-bottom:8px"><b>Яблоко ${i + 1}</b> <span class="sub">${ap.cut ? 'надрезанное' : 'целое'}</span><div class="stats" style="padding:4px 0">` +
+      Object.entries(N).map(([k, [lab, unit, norm]]) => `<div class="stat">${lab}<b>${(+(ap.state || {})[k] || 0).toFixed(2)} ${unit}</b><div class="meter"><i style="width:${Math.min(100, 100 * ((ap.state || {})[k] || 0) / max[k])}%"></i></div><div>${norm}</div></div>`).join('') + '</div></div>').join('');
+    if (events) { $('#log').innerHTML = events.slice().reverse().slice(0, 60).map(evRow).join('') || '<div class="ev">событий пока нет</div>';
+      $('#log').querySelectorAll('.ev').forEach(el => el.onclick = () => go(`#/chronicle/${rid}`)); }
+    redraw();
+  }
+  if (replay) {
+    const info = await api(`/api/run/${rid}/info`); nFrames = info.n_frames; $('#rslider').max = Math.max(0, nFrames - 1);
+    const evs = (await api(`/api/run/${rid}/events?min_imp=2`)).events;
+    const load = async i => { idxRep = Math.max(0, Math.min(nFrames - 1, i)); $('#rslider').value = idxRep; const fr = await api(`/api/run/${rid}/frame?i=${idxRep}`);
+      if (fr && fr.flies) show(fr, evs.filter(e => e.frame <= idxRep)); };
+    $('#rslider').oninput = e => load(+e.target.value);
+    $('#rb10').onclick = () => load(idxRep - 10); $('#rb1').onclick = () => load(idxRep - 1); $('#rf1').onclick = () => load(idxRep + 1); $('#rf10').onclick = () => load(idxRep + 10);
+    $('#rplay').onclick = e => { playing = !playing; e.target.textContent = playing ? '⏸' : '▶'; const tick = async () => { if (!playing || idxRep >= nFrames - 1) return; await load(idxRep + 1); timers.push(setTimeout(tick, 100)); }; tick(); };
+    load(idxRep);
+    return;
+  }
+  const poll = async () => {
+    try {
+      const st = await api(`/api/sim/${rid}/state`);
+      if (st.error && !st.title) { go(`#/observe/${rid}/0`); return; }
+      $('#status').textContent = st.status || ''; $('#error').classList.toggle('hidden', !st.error || typeof st.error !== 'string'); if (typeof st.error === 'string') $('#error').textContent = st.error;
+      const r = await api(`/api/sim/${rid}/frames?since=${next}`);
+      if (r.frames && r.frames.length) { for (const fr of r.frames.slice(0, -1)) for (const [n, f] of Object.entries(fr.flies || {})) { (trails[n] = trails[n] || []).push(f.pos); }
+        const last = r.frames[r.frames.length - 1]; next = last.i + 1; show(last, last.events); }
+    } catch (e) { $('#status').textContent = 'нет связи с сервером'; }
+    timers.push(setTimeout(poll, 400));
+  };
   poll();
-  addEventListener('resize', draw);
-})();
+}
+function addAppleDialog(rid) {
+  const m = document.createElement('div'); m.className = 'modal'; const a = { age_days: 0, cut: true, radius_mm: 30, x_mm: 0, y_mm: 0 };
+  m.innerHTML = `<div class="box"><h3 style="margin-top:0">Положить яблоко</h3><div id="ap-f"></div><button class="btn dark" id="ap-ok">Положить</button> <button class="btn" id="ap-x">Отмена</button></div>`;
+  document.body.appendChild(m);
+  const box = m.querySelector('#ap-f'); const render = () => { box.innerHTML = appleFields(a, 0, 2500).replace(/<button[^>]*data-del[^>]*>удалить<\/button>/, '');
+    box.querySelectorAll('[data-f]').forEach(inp => inp.oninput = () => { a[inp.dataset.f] = inp.type === 'checkbox' ? inp.checked : +inp.value; render(); }); }; render();
+  m.querySelector('#ap-x').onclick = () => m.remove();
+  m.querySelector('#ap-ok').onclick = () => { post(`/api/sim/${rid}/add_apple`, a).then(() => toast('яблоко будет положено')); m.remove(); };
+}
+
+// ======================= chronicle (god panel) =======================
+function evRow(e) { return `<div class="ev imp${e.imp || 1}" data-id="${e.id}"><div><b style="color:${colorSex(e.sex)}">${esc(e.fly)}</b> ${esc(e.text)}</div>
+  <div class="meta"><span style="color:${CAT_COLORS[e.cat] || '#999'}">● ${CAT_RU[e.cat] || e.cat}</span><span>${fmtClock(e.clock_h)}</span><span>сессия ${e.session ?? '—'} · ${(+e.t).toFixed(1)} с</span><span>кадр ${e.frame}</span><span>${'★'.repeat(e.imp || 1)}</span></div></div>`; }
+async function viewChronicle(rid) {
+  $('#crumb').textContent = 'хроника · ' + rid;
+  const info = await api(`/api/run/${rid}/info`);
+  if (info.error) { $('#view').innerHTML = `<div class="err">${esc(info.error)}</div>`; return; }
+  const flies = Object.entries(info.flies);
+  $('#view').innerHTML = `<div class="head"><div><h1>Хроника — панель бога</h1><div class="sub">${info.live ? '● прогон идёт, хроника обновляется' : 'прогон завершён'} · кадров ${info.n_frames} · мир ${fmtClock(info.clock_h[0])} → ${fmtClock(info.clock_h[1])}</div></div>
+    <div><button class="btn" id="copyall">Копировать видимые события</button> <a class="btn" href="#/observe/${rid}${info.live ? '' : '/0'}">к наблюдению</a></div></div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));margin-bottom:12px">${Object.entries(CAT_RU).map(([k, v]) => `<div class="card" style="cursor:pointer" data-cat="${k}"><div class="cb"><div class="stat">${v}<b style="color:${CAT_COLORS[k]}">${info.counts[k] || 0}</b></div></div></div>`).join('')}</div>
+    <div class="card" style="margin-bottom:12px"><div class="ch"><h4>Временная шкала</h4><span>метка = событие; цвет = категория; размер = важность · клик — к событию</span></div><canvas id="timeline"></canvas></div>
+    <div class="run"><div class="card"><div class="ch"><h4>События</h4><span>
+      <select id="f-imp"><option value="2">важные и главные</option><option value="3">только главные</option><option value="1">все</option></select>
+      <select id="f-cat"><option value="">все категории</option>${Object.entries(CAT_RU).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+      <select id="f-fly"><option value="">все мухи</option>${flies.map(([n]) => `<option>${esc(n)}</option>`).join('')}<option value="мир">мир</option></select></span></div>
+      <div class="evlist" id="evlist"></div></div>
+    <div style="display:grid;gap:12px;align-content:start">
+      <div class="card"><div class="ch"><h4>Преобладание областей мозга во времени</h4><span><label style="font-size:12px"><input type="checkbox" id="r-nosens" checked> без сенсорных</label> <select id="r-fly">${flies.map(([n]) => `<option>${esc(n)}</option>`).join('')}</select></span></div><canvas id="regions"></canvas>
+        <div class="legend">${Object.entries(SCHEMA.region_names).map(([k, v]) => `<span><span class="dot" style="background:${SCHEMA.region_colors[k]}"></span>${v}</span>`).join('')} <span>| чёрные линии — главные события</span></div></div>
+      <div class="card"><div class="ch"><h4>Мухи (паспорта)</h4></div><div class="cb">${flies.map(([n, s]) => `<button class="btn small" style="margin:2px;border-color:${colorSex(s)}" onclick="passport('${rid}','${esc(n)}')">${esc(n)}</button>`).join('') || 'нет'}</div></div>
+      <div class="card"><div class="ch"><h4>Момент</h4><span id="mom-title">выберите событие</span></div><div class="cb" id="moment"><div class="sub">Клик по событию покажет, что было в мозге каждой мухи: какие области преобладали и куда шёл поток сигнала между ними</div></div></div>
+    </div></div>`;
+  let events = [], series = null;
+  document.querySelectorAll('[data-cat]').forEach(el => el.onclick = () => { $('#f-cat').value = el.dataset.cat; $('#f-imp').value = '1'; loadEvents(); });
+  const loadEvents = async () => { const p = new URLSearchParams({ min_imp: $('#f-imp').value, cat: $('#f-cat').value, fly: $('#f-fly').value });
+    events = (await api(`/api/run/${rid}/events?${p}`)).events; renderList(); drawTimeline(); };
+  const renderList = () => { $('#evlist').innerHTML = events.slice().reverse().map(evRow).join('') || '<div class="ev">нет событий по фильтру</div>';
+    $('#evlist').querySelectorAll('.ev').forEach(el => el.onclick = () => openEvent(+el.dataset.id, el)); };
+  async function openEvent(id, el) {
+    const e = events.find(x => x.id === id); if (!e) return;
+    if (el.querySelector('.detail')) { el.querySelector('.detail').remove(); el.classList.remove('open'); return; }
+    document.querySelectorAll('.ev.open').forEach(x => { x.classList.remove('open'); const d = x.querySelector('.detail'); if (d) d.remove(); });
+    el.classList.add('open');
+    const fr = await api(`/api/run/${rid}/frame?i=${e.frame}`);
+    const brainTxt = fr && fr.flies ? Object.entries(fr.flies).map(([n, f]) => { const tot = (f.regions || []).reduce((a, b) => a + b, 0) || 1;
+      const reg = (f.regions || []).map((v, k) => [SCHEMA.region_names[k], Math.round(100 * v / tot)]).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([a, b]) => `${a} ${b}%`).join(', ');
+      let top = ''; if (f.flow) { const pairs = []; f.flow.forEach((row, a) => row.forEach((v, b) => { if (a !== b) pairs.push([v, a, b]); }));
+        top = pairs.sort((x, y) => y[0] - x[0]).slice(0, 3).map(([v, a, b]) => `${SCHEMA.region_names[a]}→${SCHEMA.region_names[b]} ${v}`).join('; '); }
+      return `${n}: активных нейронов ${f.n_active}; преобладают: ${reg || '—'}; сильнейшие потоки: ${top || '—'}; PPL1 ${f.rates?.ppl1 ?? '—'} Гц, PAM ${f.rates?.pam ?? '—'} Гц; голод ${f.hunger}`; }).join('\n') : '(кадр недоступен)';
+    const d = document.createElement('div'); d.className = 'detail';
+    d.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn small" data-a="copy">Копировать</button><a class="btn small" href="#/observe/${rid}/${e.frame}">Перейти к моменту ▸</a><button class="btn small" data-a="close">Свернуть</button></div><pre>${esc(e.text)}\n\nМозг в этот момент:\n${esc(brainTxt)}\n\n${esc(JSON.stringify(e, null, 1))}</pre>`;
+    d.onclick = ev => ev.stopPropagation();
+    d.querySelector('[data-a=copy]').onclick = () => copy(`${e.fly}: ${e.text}\n${fmtClock(e.clock_h)}, кадр ${e.frame}\n\nМозг в этот момент:\n${brainTxt}\n\n${JSON.stringify(e, null, 1)}`);
+    d.querySelector('[data-a=close]').onclick = () => { d.remove(); el.classList.remove('open'); };
+    el.appendChild(d); moment(fr, e);
+  }
+  function moment(fr, e) {
+    $('#mom-title').textContent = `${fmtClock(e.clock_h)} · кадр ${e.frame}`;
+    if (!fr || !fr.flies) { $('#moment').innerHTML = '<div class="sub">кадр недоступен</div>'; return; }
+    const names = SCHEMA.region_names;
+    $('#moment').innerHTML = Object.entries(fr.flies).map(([n, f]) => { const fl = f.flow || []; let mx = 1; fl.forEach(r => r.forEach(v => mx = Math.max(mx, v)));
+      const cols = Object.keys(names).length + 1;
+      return `<div style="margin-bottom:10px"><b style="color:${colorSex(f.sex)}">${esc(n)}</b> <span class="sub">${f.mode}/${f.surface}, PPL1 ${f.rates?.ppl1} Гц, PAM ${f.rates?.pam} Гц</span>${regionBars(f)}
+        <div class="sub">поток сигнала между областями (строка → столбец): чем темнее, тем сильнее</div>
+        <div class="flow" style="grid-template-columns:repeat(${cols},1fr)"><div></div>${Object.values(names).map(x => `<div title="${x}" style="background:var(--soft)">${x.slice(0, 6)}</div>`).join('')}
+        ${fl.map((row, a) => `<div title="${names[a]}" style="background:var(--soft)">${(names[a] || '').slice(0, 6)}</div>` + row.map((v, b) => `<div title="${names[a]} → ${names[b]}: ${v}" style="background:rgba(194,65,12,${(v / mx).toFixed(2)})">&nbsp;</div>`).join('')).join('')}</div></div>`; }).join('');
+  }
+  function drawTimeline() {
+    const cv = $('#timeline'); fit(cv); const c = cv.getContext('2d'), W = cv.width, H = cv.height, dpr = devicePixelRatio || 1;
+    c.clearRect(0, 0, W, H); const t0 = info.clock_h[0], t1 = Math.max(info.clock_h[1], ...events.map(e => e.clock_h), t0 + 1e-6);
+    const cats = Object.keys(CAT_RU); c.fillStyle = css('--muted'); c.font = `${10 * dpr}px sans-serif`;
+    c.fillText(fmtClock(t0), 4, H - 4); c.fillText(fmtClock(t1), W - 70 * dpr, H - 4);
+    for (const e of events) { const x = 8 + (W - 16) * (e.clock_h - t0) / (t1 - t0), y = 8 + (H - 30) * cats.indexOf(e.cat) / cats.length;
+      c.fillStyle = CAT_COLORS[e.cat] || '#999'; c.globalAlpha = 0.8; c.beginPath(); c.arc(x, y, (1 + e.imp) * dpr, 0, 7); c.fill(); }
+    c.globalAlpha = 1;
+    cv.onclick = ev => { const r = cv.getBoundingClientRect(), x = (ev.clientX - r.left) * dpr, tt = t0 + (x - 8) / (W - 16) * (t1 - t0);
+      let best = null, bd = 1e9; for (const e of events) { const d = Math.abs(e.clock_h - tt); if (d < bd) { bd = d; best = e; } }
+      if (best) { const el = document.querySelector(`.ev[data-id="${best.id}"]`); if (el) { el.scrollIntoView({ block: 'center' }); openEvent(best.id, el); } } };
+  }
+  async function drawRegions() {
+    if (!series) series = (await api(`/api/run/${rid}/series`)).series;
+    const fly = $('#r-fly').value, cv = $('#regions'); fit(cv); const c = cv.getContext('2d'), W = cv.width, H = cv.height; c.clearRect(0, 0, W, H);
+    const rows = series.filter(r => r.flies[fly] && r.flies[fly].regions); if (!rows.length) return;
+    const R = rows[0].flies[fly].regions.length;
+    const nos = $('#r-nosens').checked;
+    for (let k = 0; k < rows.length; k++) { const reg = rows[k].flies[fly].regions.map((v, r) => nos && r === 1 ? 0 : v), tot = reg.reduce((a, b) => a + b, 0) || 1; let y = H;
+      const x = W * k / rows.length, w = Math.max(1, W / rows.length + 0.5);
+      for (let r = 0; r < R; r++) { const h = H * reg[r] / tot; c.fillStyle = SCHEMA.region_colors[r]; c.fillRect(x, y - h, w, h); y -= h; } }
+    for (const e of events.filter(e => (e.fly === fly || (e.others || []).includes(fly)) && e.imp >= 3)) { const k = rows.findIndex(r => r.i >= e.frame); if (k < 0) continue;
+      c.strokeStyle = css('--ink'); c.lineWidth = 1; c.beginPath(); c.moveTo(W * k / rows.length, 0); c.lineTo(W * k / rows.length, H); c.stroke(); }
+  }
+  ['f-imp', 'f-cat', 'f-fly'].forEach(id => $('#' + id).onchange = loadEvents);
+  $('#r-fly').onchange = drawRegions; $('#r-nosens').onchange = drawRegions;
+  $('#copyall').onclick = () => copy(events.map(e => `[${fmtClock(e.clock_h)} | кадр ${e.frame}] ${'!'.repeat(e.imp)} ${e.fly}: ${e.text}`).join('\n'));
+  await loadEvents(); if (flies.length) drawRegions();
+  if (info.live) timers.push(setTimeout(() => { if (!document.querySelector('.detail')) viewChronicle(rid); }, 20000));
+}
+async function passport(rid, name) {
+  const p = await api(`/api/run/${rid}/fly/${encodeURIComponent(name)}`);
+  const m = document.createElement('div'); m.className = 'modal';
+  const cov = p.connectome || {};
+  const rows = [['ID', p.uid], ['Имя', p.name], ['Пол', p.sex === 'male' ? 'самец' : p.sex === 'female' ? 'самка' : '—'], ['Статус', p.status], ['Происхождение', p.origin], ['Родители', p.parents ? `${p.parents.mother} × ${p.parents.father}` : '—'],
+    ['Родилась (мир, ч)', p.born_world_h], ['Возраст, дн', p.age_d], ['Физиологический возраст, дн', p.bio_age_d], ['Нервная система', cov.dataset], ['Нейронов / связей', cov.neurons ? `${cov.neurons.toLocaleString('ru')} / ${cov.connections.toLocaleString('ru')}` : '—'],
+    ['Режим механизмов', MODES[p.mode] || p.mode], ['Обходы', (p.shortcuts || []).join('; ') || 'нет'], ['Seed', p.seed], ['Обучение', p.plasticity === undefined ? '—' : p.plasticity ? 'вкл' : 'выкл'], ['Спарена', p.mated ? `да (${p.mate})` : 'нет'],
+    ['Голод / энергия / здоровье', p.hunger !== undefined ? `${p.hunger} / ${p.energy} / ${p.health}` : '—'], ['Индивидуальная выносливость', p.tolerances ? Object.entries(p.tolerances).map(([k, v]) => `${k} ${v}`).join(', ') : '—'],
+    ['События', Object.entries(p.event_counts || {}).map(([k, v]) => `${CAT_RU[k] || k}: ${v}`).join(', ') || '—']];
+  m.innerHTML = `<div class="box"><div style="display:flex;justify-content:space-between;gap:8px"><h3 style="margin:0">Паспорт мухи ${esc(name)}</h3><span><button class="btn small" id="pp-copy">Копировать</button> <button class="btn small" id="pp-x">Закрыть</button></span></div>
+    <table class="t" style="margin-top:8px">${rows.map(([k, v]) => `<tr><th style="width:38%">${k}</th><td>${esc(v ?? '—')}</td></tr>`).join('')}</table>
+    ${cov.groups ? `<h4>Состав нервной системы</h4><table class="t">${Object.entries(cov.groups).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join('')}</table>` : ''}
+    ${cov.missing ? `<h4>Чего нет в нервной системе</h4><ul>${cov.missing.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    <h4>Жизнь (важные события)</h4><div class="evlist" style="max-height:320px">${(p.life || []).slice().reverse().map(evRow).join('') || '<div class="ev">нет</div>'}</div></div>`;
+  document.body.appendChild(m);
+  m.querySelector('#pp-x').onclick = () => m.remove(); m.onclick = e => { if (e.target === m) m.remove(); };
+  m.querySelector('#pp-copy').onclick = () => copy(JSON.stringify(p, null, 1));
+}
+route();
 </script>
 </body>
 </html>
