@@ -16,7 +16,7 @@ closed sensorimotor loop.
 from dataclasses import dataclass, field
 
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
 from flysim.data.flywire import Connectome
 
@@ -41,39 +41,33 @@ class LIFParams:
     dt: float = 0.1        # ms
 
 
-@njit(cache=True)
-def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
-          decay_v, decay_g, coef_a, v_0, v_th, v_rst,
-          stim_idx, stim_p, stim_w, kick_step, kick_idx, rng_state,
-          counts, rec_mask, rec_out):
-    n = v.shape[0]
-    D = ring.shape[0]
-    spiked = np.empty(n, dtype=np.int32)
-    frozen = np.zeros(n, dtype=np.uint8)
-    k = 0
-    np.random.seed(rng_state)
-    for s in range(n_steps):
-        step = t0 + s
-        slot = step % D
-        # 1) integrate (exact solution of the linear system) for non-refractory neurons
-        for i in range(n):
+N_CHUNKS = 64
+
+
+@njit(cache=True, parallel=True)
+def _update_chunks(n, slot, v, g, rfc_left, frozen, ring, gain, decay_v, decay_g, coef_a,
+                   v_0, v_th, spk_buf, spk_n):
+    """Fused, parallel: integrate -> threshold -> deliver due synaptic input, per neuron.
+    Delivered input changes g only, so it cannot affect this step's threshold (as in Brian2)."""
+    csize = (n + N_CHUNKS - 1) // N_CHUNKS
+    for c in prange(N_CHUNKS):
+        lo = c * csize
+        hi = min(n, lo + csize)
+        m = 0
+        for i in range(lo, hi):
             if rfc_left[i] > 0:
                 rfc_left[i] -= 1
                 frozen[i] = 1
-                continue
-            frozen[i] = 0
-            dv = v[i] - v_0
-            a = g[i] * coef_a
-            v[i] = v_0 + (dv - a) * decay_v + a * decay_g
-            g[i] = g[i] * decay_g
-        # 2) threshold
-        ns = 0
-        for i in range(n):
-            if v[i] > v_th and frozen[i] == 0:
-                spiked[ns] = i
-                ns += 1
-        # 3) synaptic delivery due now, Poisson drive, scheduled kicks
-        for i in range(n):
+            else:
+                frozen[i] = 0
+                gi = g[i]
+                if gi != 0.0 or v[i] != v_0:
+                    a = gi * coef_a
+                    v[i] = v_0 + (v[i] - v_0 - a) * decay_v + a * decay_g
+                    g[i] = gi * decay_g
+                if v[i] > v_th:
+                    spk_buf[lo + m] = i
+                    m += 1
             x = ring[slot, i]
             if x != 0.0:
                 # ASSUMPTION(A05): input arriving while refractory is discarded (Brian2 semantics
@@ -81,25 +75,48 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
                 if frozen[i] == 0:
                     g[i] += x * gain[i]
                 ring[slot, i] = 0.0
+        spk_n[c] = m
+
+
+@njit(cache=True)
+def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
+          decay_v, decay_g, coef_a, v_0, v_th, v_rst,
+          stim_idx, stim_p, stim_w, kick_step, kick_idx, rng_state,
+          counts, rec_mask, rec_out):
+    n = v.shape[0]
+    D = ring.shape[0]
+    csize = (n + N_CHUNKS - 1) // N_CHUNKS
+    spk_buf = np.empty(n, dtype=np.int32)
+    spk_n = np.zeros(N_CHUNKS, dtype=np.int64)
+    frozen = np.zeros(n, dtype=np.uint8)
+    k = 0
+    np.random.seed(rng_state)
+    for s in range(n_steps):
+        step = t0 + s
+        slot = step % D
+        _update_chunks(n, slot, v, g, rfc_left, frozen, ring, gain, decay_v, decay_g, coef_a,
+                       v_0, v_th, spk_buf, spk_n)
+        # Poisson drive and scheduled kicks act on v after the threshold (Brian2 'synapses' slot)
         for j in range(stim_idx.shape[0]):
             if stim_p[j] > 0.0 and np.random.random() < stim_p[j]:
                 v[stim_idx[j]] += stim_w
         while k < kick_step.shape[0] and kick_step[k] == s:
             v[kick_idx[k]] += stim_w
             k += 1
-        # 4) reset + schedule outgoing spikes
+        # reset + schedule outgoing spikes
         out_slot = (step + D - 1) % D
-        for q in range(ns):
-            i = spiked[q]
-            v[i] = v_rst
-            g[i] = 0.0
-            rfc_left[i] = rfc_len[i]
-            counts[i] += 1
-            c = rec_mask[i]
-            if c >= 0:
-                rec_out[s, c] = 1
-            for e in range(indptr[i], indptr[i + 1]):
-                ring[out_slot, post[e]] += w[e]
+        for c in range(N_CHUNKS):
+            for q in range(spk_n[c]):
+                i = spk_buf[c * csize + q]
+                v[i] = v_rst
+                g[i] = 0.0
+                rfc_left[i] = rfc_len[i]
+                counts[i] += 1
+                r = rec_mask[i]
+                if r >= 0:
+                    rec_out[s, r] = 1
+                for e in range(indptr[i], indptr[i + 1]):
+                    ring[out_slot, post[e]] += w[e]
 
 
 @dataclass
