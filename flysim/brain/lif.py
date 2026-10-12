@@ -93,11 +93,15 @@ def _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, c):
     dt = c[0]
     for p in range(pe_edge.shape[0]):
         e = pe_edge[p]
-        wv = w[e]
         xk = x_tr[pe_pre[p]]
         w0 = pe_w0[p]
-        w[e] = wv + (-c[3] * xk * da_tr[pe_m[p]] * wv + c[4] * xk * (w0 - wv)
-                     - (wv - w0) * c[5]) * dt
+        # linear in w over one update -> exact exponential step (unconditionally stable)
+        a = c[3] * xk * da_tr[pe_m[p]]
+        b = c[4] * xk + c[5]
+        k = a + b
+        if k > 0.0:
+            w_eq = b * w0 / k
+            w[e] = w_eq + (w[e] - w_eq) * np.exp(-k * dt)
     for k in range(kc_idx.shape[0]):
         x_tr[kc_idx[k]] *= c[1]
     for i in range(da_tr.shape[0]):
