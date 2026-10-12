@@ -19,6 +19,7 @@ class Zone:
 class World:
     apple: Apple
     arena: float = 60.0                    # half-width, mm
+    apples: list = field(default_factory=list)  # all fruit; `apple` is the first one
     flies: list = field(default_factory=list)
     zones: list = field(default_factory=list)
     ambient_c: float = 25.0
@@ -32,24 +33,62 @@ class World:
     copulation_s: float = 60.0  # ASSUMPTION(A62): real ~20 min, shortened inside a session
     arena_phys: object = None   # NMFArena when flies use NeuroMechFly bodies
     atm: object = None          # flysim.world.atmosphere.Atmosphere (container air)
+    plants: object = None       # flysim.world.plant.PlantWorld (seeds, seedlings, trees)
+    seasonal: bool = False      # temperate annual temperature cycle (A93)
+    base_temp_c: float = 25.0
+    max_apples: int = 8         # performance cap for fruit produced by trees
+
+    def __post_init__(self):
+        if not self.apples:
+            self.apples = [self.apple]
+        self.apple = self.apples[0]
+
+    def nearest_apple(self, x):
+        return min(self.apples, key=lambda a: np.linalg.norm(np.asarray(x) - a.center) - a.p.radius_mm)
 
     def sync_air(self):
         if self.atm is not None:
             self.o2_pct, self.co2_ppm = self.atm.o2_pct, self.atm.co2_ppm
-        self.apple.o2_pct = self.o2_pct
-        self.apple.temp_c = self.ambient_c
+        for a in self.apples:
+            a.o2_pct = self.o2_pct
+            a.temp_c = self.ambient_c
 
     def advance_hours(self, hours: float):
         """Off-line time: apple chemistry and container air evolve together, hour by hour."""
         left = hours
         while left > 1e-9:
             h = min(1.0, left)
+            if self.seasonal:
+                from flysim.world.plant import seasonal_temp
+                self.ambient_c = float(seasonal_temp(self.clock_h))
             self.sync_air()
-            self.apple.age(h)
+            for a in self.apples:
+                a.age(h)
+            if self.plants is not None:
+                self.plants.step(h, self.apples, self.ambient_c, self.o2_pct, self.clock_h)
+                self._tree_fruit()
+            self.clock_h += h
             if self.atm is not None:
-                self.atm.step(h, self.apple, len(self.flies), self.ambient_c)
+                self.atm.step(h, self.apples, len(self.flies), self.ambient_c)
             left -= h
         self.sync_air()
+
+    def _tree_fruit(self):
+        """Fruiting trees drop new apples in autumn (day-of-year ~260); seeds come with them."""
+        from flysim.world.apple import Apple, AppleParams
+        trees = self.plants.fruiting()
+        doy = (180 + self.clock_h / 24.0) % 365.0
+        if not trees or not (259.5 <= doy < 260.5) or len(self.apples) >= self.max_apples:
+            return
+        rng = self.plants.rng
+        for _ in range(min(len(trees) * 50, self.max_apples - len(self.apples))):
+            ang, rr = rng.uniform(0, 2 * np.pi), rng.uniform(0.2, 0.8) * self.arena
+            a = Apple(AppleParams(radius_mm=30.0), center=(rr * np.cos(ang), rr * np.sin(ang)),
+                      cut=rng.random() < 0.5, temp_c=self.ambient_c, o2_pct=self.o2_pct)
+            self.apples.append(a)
+            self.plants.add_apple_seeds(len(self.apples) - 1)
+        self.plants.events.append((self.clock_h, "дерево дало плоды: на землю упали новые яблоки"))
+        self.physics_dirty = True
 
     def rebuild_physics(self):
         """(Re)create the shared MuJoCo world for all flies with body='nmf'."""
@@ -58,8 +97,9 @@ class World:
         if not phys:
             self.arena_phys = None
             return
-        self.arena_phys = NMFArena(self.apple.center, self.apple.p.radius_mm,
-                                   [(f.cfg.name, f.body.pos, f.body.yaw) for f in phys])
+        self.arena_phys = NMFArena([(a.center, a.p.radius_mm) for a in self.apples],
+                                   None, [(f.cfg.name, f.body.pos, f.body.yaw) for f in phys],
+                                   half_size=max(1000.0, 2 * self.arena))
         for f in phys:
             old = f.body
             f.body = NMFBody(self.arena_phys, f.cfg.name, old.rng)
@@ -77,10 +117,11 @@ class World:
         # ASSUMPTION(A42b): CO2 in odour units of 1 = 1 % CO2 (Gr21a/Gr63a neurons respond from
         # ~0.1 % and drive avoidance at 0.1-1 %; Suh et al. 2004; Jones et al. 2007)
         out = {"CO2": self.co2_ppm / 1e4}
-        ac, ar = self.apple.center, self.apple.p.radius_mm
-        f = ar / max(np.linalg.norm(x - ac), ar)
-        for k, v in self.apple.odor_sources().items():
-            out[k] = out.get(k, 0.0) + self.odor_scale * v * f
+        for a in self.apples:
+            ac, ar = a.center, a.p.radius_mm
+            f = ar / max(np.linalg.norm(x - ac), ar)
+            for k, v in a.odor_sources().items():
+                out[k] = out.get(k, 0.0) + self.odor_scale * v * f
         for pos, comp, rad in self.extra_odor_sources:
             f = rad / max(np.linalg.norm(x - np.asarray(pos)), rad)
             for k, v in comp.items():
@@ -94,7 +135,7 @@ class World:
         return out
 
     def taste_at(self, x) -> dict:
-        return self.apple.surface_taste()
+        return self.nearest_apple(x).surface_taste()
 
     def temperature_at(self, x) -> float:
         t = self.ambient_c
@@ -114,7 +155,7 @@ class World:
         return float(self.shocks.get(fly.cfg.name, 0.0))
 
     def visual_spheres(self, me):
-        s = [(self.apple.center, self.apple.p.radius_mm)]
+        s = [(a.center, a.p.radius_mm) for a in self.apples]
         for other in self.flies:
             if other is not me:
                 s.append((other.body.pos + np.array([0, 0, 0.8]), other.radius))
@@ -191,6 +232,6 @@ class World:
                     f.body.sync()
         self.interactions(dt)
         if self.atm is not None:
-            self.atm.step(dt / 3600, self.apple, len(self.flies), self.ambient_c)
+            self.atm.step(dt / 3600, self.apples, len(self.flies), self.ambient_c)
             self.sync_air()
         self.clock_h += dt / 3600

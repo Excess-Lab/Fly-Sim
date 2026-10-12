@@ -30,13 +30,19 @@ LEG_NERVE = {"f": "ProLN", "m": "MesoLN", "h": "MetaLN"}
 class NMFArena:
     """One MuJoCo world shared by all flies: floor + apple sphere."""
 
-    def __init__(self, apple_center, apple_r, names_poses):
-        self.world = FlatGroundWorld()
-        self.apple_geom = self.world.mjcf_root.worldbody.add_geom(
-            type=GEOM_TYPES["sphere"], name="apple", pos=tuple(apple_center),
-            size=(apple_r, 0, 0), rgba=(0.6, 0.45, 0.15, 1), contype=0, conaffinity=0)
-        # legs collide with every 'ground' geom -> they can stand and walk on the apple
-        self.world.ground_geoms.append(self.apple_geom)
+    def __init__(self, apples, _unused, names_poses, half_size: float = 1000.0):
+        """apples: list of (center xyz, radius) in mm."""
+        if not isinstance(apples, list):            # backward compatible (center, r) call
+            apples = [(apples, _unused)]
+        self.world = FlatGroundWorld(half_size=half_size)
+        self.apple_geoms = []
+        for k, (c, r) in enumerate(apples):
+            g = self.world.mjcf_root.worldbody.add_geom(
+                type=GEOM_TYPES["sphere"], name=f"apple{k}", pos=tuple(c), size=(r, 0, 0),
+                rgba=(0.6, 0.45, 0.15, 1), contype=0, conaffinity=0)
+            # legs collide with every 'ground' geom -> they can stand and walk on each apple
+            self.world.ground_geoms.append(g)
+            self.apple_geoms.append(g)
         self.flies = {}
         for name, pos, yaw in names_poses:
             fly = make_locomotion_fly(name=name, add_adhesion=True, colorize=False)
@@ -61,7 +67,8 @@ class NMFArena:
                 adhesion_onoff=np.ones(6, bool)))
         self.sim.warmup()
         m, d = self.sim.mj_model, self.sim.mj_data
-        self.apple_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "apple")
+        self.apple_ids = {mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, f"apple{k}")
+                          for k in range(len(self.apple_geoms))}
         self.floor_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "ground_plane")
         self.drive = {n: np.zeros(2) for n in self.flies}
         self.kinematic = {}   # name -> (pos, yaw) while flying
@@ -155,7 +162,7 @@ class NMFArena:
             c = d.contact[i]
             for g, other in ((c.geom1, c.geom2), (c.geom2, c.geom1)):
                 if g in lg:
-                    if other == self.apple_id:
+                    if other in self.apple_ids:
                         out[lg[g]] = "apple"
                     elif other == self.floor_id and out[lg[g]] is None:
                         out[lg[g]] = "floor"

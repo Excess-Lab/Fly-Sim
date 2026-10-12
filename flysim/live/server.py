@@ -47,18 +47,27 @@ SCHEMA = {
         "ach": {"label": "Вентиляция", "unit": "обм/ч", "min": 0, "max": 20, "step": 0.5,
                 "default": 2, "norm": "0 — герметично (CO₂ копится, O₂ падает); комната ~0.5–6"},
     },
-    "apple": {
-        "age_days": {"label": "Возраст яблока", "unit": "дн", "min": 0.0, "max": 30.0, "step": 0.5,
-                     "default": 2.0, "norm": "надрезанное: 1–3 дн брожение, 4–5 дн спирт, 7+ дн уксус и плесень"},
-        "cut": {"label": "Надрезанное (повреждённое)", "type": "bool", "default": True,
-                "norm": "целое бродит и плесневеет неделями, надрезанное — днями"},
-        "radius_mm": {"label": "Радиус", "unit": "мм", "min": 10.0, "max": 40.0, "step": 1.0,
-                      "default": 30.0, "norm": "реальное яблоко ~35–40 мм"},
+    "world": {
+        "size_m": {"label": "Размер мира (сторона)", "unit": "м", "min": 0.1, "max": 5.0, "step": 0.05,
+                   "default": 0.3, "norm": "садок ~0.2–0.3 м, комната 3–5 м; в неподвижном воздухе "
+                                         "запахи слабеют как R/r — в большом мире мухи находят еду дольше"},
+        "seasonal": {"label": "Смена сезонов (умеренный климат)", "type": "bool", "default": False,
+                     "norm": "среднее 10 °C ± 12 °C за год; зимой мухи в холодовой коме, семена проходят стратификацию"},
+        "soil": {"label": "Почва под яблоками", "type": "bool", "default": False,
+                 "norm": "без почвы семена не прорастут"},
+        "moist": {"label": "Влажность почвы", "type": "bool", "default": False,
+                  "norm": "семенам нужна влага и для стратификации, и для прорастания"},
+    },
+    "apples": {
+        "list": {"label": "Яблоки", "type": "apples",
+                 "default": [{"age_days": 2.0, "cut": True, "radius_mm": 30.0, "x_mm": 0.0, "y_mm": 0.0}],
+                 "norm": "надрезанное: 1–3 дн брожение, 4–5 дн спирт, 7+ дн уксус и плесень; "
+                         "целое бродит и плесневеет неделями; реальное яблоко ~35–40 мм"},
     },
     "flies": {
-        "males": {"label": "Самцы", "unit": "", "min": 0, "max": 3, "step": 1, "default": 1,
+        "males": {"label": "Самцы", "unit": "", "min": 0, "max": 10, "step": 1, "default": 1,
                   "norm": "Male CNS, 164 587 нейронов каждый"},
-        "females": {"label": "Самки", "unit": "", "min": 0, "max": 3, "step": 1, "default": 1,
+        "females": {"label": "Самки", "unit": "", "min": 0, "max": 10, "step": 1, "default": 1,
                     "norm": "FlyWire, 138 639 нейронов каждая"},
         "starved_h": {"label": "Голодали перед стартом", "unit": "ч", "min": 0.0, "max": 48.0,
                       "step": 1.0, "default": 18.0, "norm": "кормовые опыты: 18–24 ч"},
@@ -113,8 +122,9 @@ SCHEMA = {
                       "step": 5, "default": 60, "norm": "~×0.1 от реального времени на M2"},
         "ff_hours": {"label": "Перемотка между сессиями", "unit": "ч", "min": 0, "max": 72,
                      "step": 1, "default": 24, "norm": "0 — без перемотки"},
-        "max_adults": {"label": "Макс. мух с мозгом", "unit": "", "min": 1, "max": 6, "step": 1,
-                       "default": 4, "norm": "~0.3–0.5 ГБ памяти на муху"},
+        "max_adults": {"label": "Макс. мух с мозгом", "unit": "", "min": 1, "max": 30, "step": 1,
+                       "default": 4, "norm": "~0.4 ГБ памяти и ~10 с счёта на 1 с жизни на муху; "
+                                             "на Mac 8 ГБ разумно ≤4–6"},
     },
 }
 
@@ -141,19 +151,37 @@ def b64(a):
 class Simulation:
     def __init__(self, cfg: dict):
         self.cfg = cfg
-        env, ap, fl, hz, sci, run = (cfg[k] for k in ("environment", "apple", "flies", "hot_zone",
-                                                      "science", "run"))
+        env, fl, hz, sci, run = (cfg[k] for k in ("environment", "flies", "hot_zone", "science", "run"))
+        wd = cfg["world"]
+        from flysim.world.plant import PlantWorld
         from flysim.world.atmosphere import Atmosphere
-        apple = Apple(AppleParams(radius_mm=float(ap["radius_mm"])), cut=bool(ap["cut"]),
-                      temp_c=float(env["temp_c"]), o2_pct=float(env["o2_pct"]))
+        half = float(wd["size_m"]) * 1000 / 2
+        apples = []
+        for a in (cfg["apples"]["list"] or [])[:12]:
+            r = float(a.get("radius_mm", 30.0))
+            x = float(np.clip(a.get("x_mm", 0.0), -half + r, half - r))
+            y = float(np.clip(a.get("y_mm", 0.0), -half + r, half - r))
+            apples.append(Apple(AppleParams(radius_mm=r), center=(x, y), cut=bool(a.get("cut", True)),
+                                temp_c=float(env["temp_c"]), o2_pct=float(env["o2_pct"])))
+        if not apples:
+            apples = [Apple(AppleParams(radius_mm=30.0))]
+        apple = apples[0]
+        ages = [float(a.get("age_days", 0.0)) for a in (cfg["apples"]["list"] or [])] or [0.0]
         atm = Atmosphere(volume_l=float(env["volume_l"]), ach=float(env["ach"]),
                          co2_ppm=float(env["co2_ppm"]), o2_pct=float(env["o2_pct"]),
                          outside_co2_ppm=float(env["co2_ppm"]), outside_o2_pct=float(env["o2_pct"]))
-        self.world = World(apple, arena=55.0, ambient_c=float(env["temp_c"]),
-                           o2_pct=float(env["o2_pct"]), co2_ppm=float(env["co2_ppm"]), atm=atm)
-        # the apple has been rotting in this container for age_days before the flies arrive
-        self.world.advance_hours(float(ap["age_days"]) * 24)
+        self.world = World(apple, apples=apples, arena=half, ambient_c=float(env["temp_c"]),
+                           o2_pct=float(env["o2_pct"]), co2_ppm=float(env["co2_ppm"]), atm=atm,
+                           seasonal=bool(wd["seasonal"]), base_temp_c=float(env["temp_c"]),
+                           plants=PlantWorld(soil=bool(wd["soil"]), moist=bool(wd["moist"])))
+        for k in range(len(apples)):
+            self.world.plants.add_apple_seeds(k)
+        # each apple has been lying here for its own age before the flies arrive
+        for a, age in zip(apples, ages):
+            a.age(age * 24)
+        self.world.sync_air()
         self.world.clock_h = 0.0
+        self.pending = []   # requests from the web page (add fly), applied between steps
         self.world.population = Population(max_adults=int(run["max_adults"]))
         if hz["enabled"]:
             self.world.zones.append(Zone(center=(-35.0, 25.0), radius=float(hz["radius_mm"]),
@@ -169,10 +197,11 @@ class Simulation:
         self.started = time.time()
         r = apple.p.radius_mm
         k = 0
+        self._spawn_near = apple.center
         for sex, n in (("male", int(fl["males"])), ("female", int(fl["females"]))):
             for _ in range(n):
                 ang = np.pi + 0.5 * k - 0.4
-                pos = (np.cos(ang) * (r + 12), np.sin(ang) * (r + 12), 0.0)
+                pos = (apple.center[0] + np.cos(ang) * (r + 12), apple.center[1] + np.sin(ang) * (r + 12), 0.0)
                 f = self.add_fly(sex, pos, ang + np.pi, float(fl["starved_h"]), calibrate=False)
                 if sex == "female" and not fl["virgin"]:
                     f.set_mated("(до опыта)")
@@ -219,7 +248,14 @@ class Simulation:
                         "center": w.apple.center.tolist(), "radius": w.apple.p.radius_mm,
                         "state": {k: round(float(getattr(s, k)), 4) for k in APPLE_NORMS},
                         "mold": round(float(s.mold), 3)},
-              "env": {"o2_pct": round(w.o2_pct, 2), "co2_ppm": round(w.co2_ppm), "temp_c": w.ambient_c},
+              "apples": [dict(zip(("color", "color_light"), _apple_colors(vars(a.s))),
+                              center=a.center.tolist(), radius=a.p.radius_mm, mold=round(float(a.s.mold), 3),
+                              summary=a.summary(), cut=bool(getattr(a, "cut", True)),
+                              state={k: round(float(getattr(a.s, k)), 4) for k in APPLE_NORMS})
+                         for a in w.apples],
+              "arena_mm": w.arena,
+              "plants": w.plants.summary() if w.plants else None,
+              "env": {"o2_pct": round(w.o2_pct, 2), "co2_ppm": round(w.co2_ppm), "temp_c": round(w.ambient_c, 1)},
               "zones": [{"center": z.center, "radius": z.radius, "temp_c": z.temp_c} for z in w.zones],
               "brood": w.population.counts(w.clock_h), "born": w.population.born,
               "status": self.status, "flies": {}}
@@ -255,6 +291,7 @@ class Simulation:
         w = self.world
         self.status = f"перемотка {hours:.0f} ч: яблоко бродит и плесневеет, яйца развиваются"
         pop = w.population
+        t0 = w.clock_h
         anoxic_h = {f.cfg.name: 0.0 for f in w.flies}
         # air and fruit evolve together; track hours of anoxia for each fly (A91)
         left = hours
@@ -265,10 +302,13 @@ class Simulation:
                 for f in w.flies:
                     anoxic_h[f.cfg.name] += h
             left -= h
-        ready = pop.fast_forward(w.clock_h, hours, w.apple, w.flies)
+        ready = pop.fast_forward(t0, hours, w.apples, w.flies)
+        if w.plants is not None and w.flies:
+            for te, text in w.plants.events:
+                self.log._ev(w, w.flies[0], 0.0, "plant", text)
+            w.plants.events.clear()
         for f in w.flies:
             f.pass_time(hours, w, fed_from_fruit=True)
-        w.clock_h += hours
         for f in list(w.flies):
             cause = None
             if f.age_d > pop.lifespan_d * (0.3 + 0.7 * f.meta.health):  # A72
@@ -277,6 +317,8 @@ class Simulation:
                 cause = "голод"
             elif anoxic_h.get(f.cfg.name, 0.0) > 4:   # A91: flies recover from <~4 h of anoxia
                 cause = "нехватка кислорода"
+            elif getattr(f, "cold_h", 0.0) > 72:      # A93: prolonged chill injury
+                cause = "холод"
             if cause:
                 w.flies.remove(f)
                 self.log._ev(w, f, 0.0, "death", f"погибла: {cause}, возраст {f.age_d:.1f} дн")
@@ -287,12 +329,33 @@ class Simulation:
                 continue
             sex = "female" if pop.rng.random() < 0.5 else "male"
             ang = pop.rng.uniform(0, 2 * np.pi)
-            rr = w.apple.p.radius_mm + 8
-            f = self.add_fly(sex, (rr * np.cos(ang), rr * np.sin(ang), 0.0), ang + np.pi, 6.0,
+            ap = w.apples[min(b.apple_idx, len(w.apples) - 1)]
+            rr = ap.p.radius_mm + 8
+            f = self.add_fly(sex, (ap.center[0] + rr * np.cos(ang), ap.center[1] + rr * np.sin(ang), 0.0),
+                             ang + np.pi, 6.0,
                              note=f"вылупилась (мать {b.mother}, отец {b.father})")
             f.age_d = 0.0
             self.log._ev(w, f, 0.0, "birth", f"новая муха {f.cfg.name} с собственным мозгом")
-        w.rebuild_physics()
+
+    def _apply_pending(self):
+        added = False
+        while self.pending:
+            req = self.pending.pop(0)
+            if req.get("type") == "add_fly":
+                w = self.world
+                if len(w.flies) >= int(self.cfg["run"]["max_adults"]):
+                    self.log._ev(w, w.flies[0], 0.0, "info", "лимит мух с мозгом достигнут") if w.flies else None
+                    continue
+                ap = w.nearest_apple(np.zeros(3))
+                ang = np.random.default_rng().uniform(0, 2 * np.pi)
+                rr = ap.p.radius_mm + 10
+                f = self.add_fly(req.get("sex", "female"),
+                                 (ap.center[0] + rr * np.cos(ang), ap.center[1] + rr * np.sin(ang), 0.0),
+                                 ang + np.pi, float(self.cfg["flies"]["starved_h"]),
+                                 note="добавлена экспериментатором")
+                added = True
+        if added:
+            self.world.rebuild_physics()
 
     def run(self):
         try:
@@ -304,6 +367,8 @@ class Simulation:
                 t, k = 0.0, 0
                 per = int(round(FRAME_DT / 0.01))
                 while t < float(run["session_s"]) and not self.stop_flag:
+                    if self.pending:
+                        self._apply_pending()
                     if self.paused:
                         time.sleep(0.1)
                         continue
@@ -316,6 +381,9 @@ class Simulation:
                     break
                 if float(run["ff_hours"]) > 0:
                     self.fast_forward(float(run["ff_hours"]))
+                    if getattr(self.world, "physics_dirty", False) or True:
+                        self.world.physics_dirty = False
+                        self.world.rebuild_physics()
                     self.snapshot(0.0)
                 if not self.world.flies:
                     self.status = "все мухи погибли"
@@ -428,6 +496,9 @@ def make_handler(app: App):
                 return self._json({"ok": True})
             if u.path == "/api/stop":
                 app.stop()
+                return self._json({"ok": True})
+            if u.path == "/api/add_fly" and app.sim:
+                app.sim.pending.append({"type": "add_fly", "sex": body.get("sex", "female")})
                 return self._json({"ok": True})
             if u.path == "/api/pause" and app.sim:
                 app.sim.paused = not app.sim.paused

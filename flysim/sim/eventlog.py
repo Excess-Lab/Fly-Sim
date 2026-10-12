@@ -25,7 +25,7 @@ TS_FIELDS = ["clock_h", "t", "fly", "sex", "x", "y", "z", "yaw", "mode", "surfac
              # level 3: physical movement of the body
              "speed_mm_s", "yaw_rate_deg_s", "legs_in_contact", "legs_on_apple", "body_temp_c"]
 
-APPLE_FIELDS = ["clock_h", "age_d", "sugar", "ethanol", "acetic", "esters", "yeast", "bacteria",
+APPLE_FIELDS = ["clock_h", "apple", "age_d", "sugar", "ethanol", "acetic", "esters", "yeast", "bacteria",
                 "ferm_rate", "odor_ethyl_acetate", "odor_ethanol", "odor_acetic_acid", "odor_CO2",
                 "odor_hexyl_acetate", "eggs", "larvae", "pupae"]
 
@@ -99,17 +99,21 @@ class EventLog:
             self.rows.append(s)
             self._events_for(w, f, t, s, self.prev.get(f.cfg.name))
             self.prev[f.cfg.name] = s
-        a = w.apple
-        src = a.odor_sources()
         pc = w.population.counts(w.clock_h) if getattr(w, "population", None) else {}
-        self.apple_rows.append({
-            "clock_h": round(w.clock_h, 5), "age_d": round(a.s.age_h / 24, 4), "sugar": round(a.s.sugar, 4),
-            "ethanol": round(a.s.ethanol, 4), "acetic": round(a.s.acetic, 4), "esters": round(a.s.esters, 5),
-            "yeast": round(a.s.yeast, 4), "bacteria": round(a.s.aab, 4), "ferm_rate": round(a.s.ferm_rate, 5),
-            "odor_ethyl_acetate": round(float(src["ethyl acetate"]), 5), "odor_ethanol": round(float(src["ethanol"]), 5),
-            "odor_acetic_acid": round(float(src["acetic acid"]), 5), "odor_CO2": round(float(src["CO2"]), 5),
-            "odor_hexyl_acetate": round(float(src["hexyl acetate"]), 5),
-            "eggs": pc.get("egg", 0), "larvae": pc.get("larva", 0), "pupae": pc.get("pupa", 0)})
+        for k, a in enumerate(w.apples):
+            src = a.odor_sources()
+            self.apple_rows.append({
+                "clock_h": round(w.clock_h, 5), "apple": k, "age_d": round(a.s.age_h / 24, 4),
+                "sugar": round(a.s.sugar, 4), "ethanol": round(a.s.ethanol, 4),
+                "acetic": round(a.s.acetic, 4), "esters": round(a.s.esters, 5),
+                "yeast": round(a.s.yeast, 4), "bacteria": round(a.s.aab, 4),
+                "ferm_rate": round(a.s.ferm_rate, 5),
+                "odor_ethyl_acetate": round(float(src["ethyl acetate"]), 5),
+                "odor_ethanol": round(float(src["ethanol"]), 5),
+                "odor_acetic_acid": round(float(src["acetic acid"]), 5),
+                "odor_CO2": round(float(src["CO2"]), 5),
+                "odor_hexyl_acetate": round(float(src["hexyl acetate"]), 5),
+                "eggs": pc.get("egg", 0), "larvae": pc.get("larva", 0), "pupae": pc.get("pupa", 0)})
 
     def _events_for(self, w, f, t, s, p):
         E = lambda kind, text, **d: self._ev(w, f, t, kind, text, **d)  # noqa: E731

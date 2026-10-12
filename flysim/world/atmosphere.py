@@ -27,16 +27,19 @@ class Atmosphere:
 
     def step(self, hours: float, apple, n_flies: int, temp_c: float = 25.0):
         """Advance by `hours` (sub-stepped). Uses the apple's current microbial rates."""
-        s = apple.s
-        mass_g = 0.85 * 4 / 3 * np.pi * (apple.p.radius_mm / 10) ** 3
+        apples = apple if isinstance(apple, (list, tuple)) else [apple]
         vm = MOLAR_L * (273.15 + temp_c) / 298.15
         n = max(1, int(np.ceil(hours / 0.05)))
         h = hours / n
         for _ in range(n):
-            ferm_g_h = s.ferm_rate * mass_g / 100.0                       # sugar fermented
-            mold_g_h = apple.p.q_mold_sugar * s.mold * mass_g / 100.0      # sugar respired
-            acet_g_h = apple.p.q_eth * s.aab * mass_g / 100.0 * \
-                (self.o2_pct / (self.o2_pct + apple.p.k_o2_pct))           # ethanol oxidised
+            ferm_g_h = mold_g_h = acet_g_h = 0.0
+            for ap in apples:
+                s = ap.s
+                mass_g = 0.85 * 4 / 3 * np.pi * (ap.p.radius_mm / 10) ** 3
+                ferm_g_h += s.ferm_rate * mass_g / 100.0                       # sugar fermented
+                mold_g_h += ap.p.q_mold_sugar * s.mold * mass_g / 100.0      # sugar respired
+                acet_g_h += ap.p.q_eth * s.aab * mass_g / 100.0 * \
+                    (self.o2_pct / (self.o2_pct + ap.p.k_o2_pct))           # ethanol oxidised
             co2_mol_h = ferm_g_h / 180.16 * 2 + mold_g_h / 180.16 * 6 + n_flies * 4e-6 / vm
             o2_mol_h = mold_g_h / 180.16 * 6 + acet_g_h / 46.07 + n_flies * 4e-6 / vm
             # moles in the container at 1 atm; excess gas vents (mixture leaves proportionally)

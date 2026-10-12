@@ -23,6 +23,7 @@ class Brood:
     father: str
     pos: tuple
     alive: bool = True
+    apple_idx: int = 0
 
     def stage(self, now_h):
         age_d = (now_h - self.laid_h) / 24
@@ -44,9 +45,9 @@ class Population:
     max_adults: int = 4            # RAM limit on an 8 GB Mac (each brain ~0.3-0.5 GB)
     lifespan_d: float = 45.0
 
-    def lay(self, now_h, mother, father, pos, n=1):
+    def lay(self, now_h, mother, father, pos, n=1, apple_idx=0):
         for _ in range(n):
-            self.brood.append(Brood(now_h, mother, father, tuple(np.round(pos, 2))))
+            self.brood.append(Brood(now_h, mother, father, tuple(np.round(pos, 2)), apple_idx=apple_idx))
 
     def survival_per_day(self, apple) -> float:
         """ASSUMPTION(A73): mould competes with larvae and its toxins kill them (Rohlfs 2005;
@@ -56,19 +57,22 @@ class Population:
         acid_pen = max(0.0, (s.acetic - 4.0) / 4.0)
         return float(np.clip((0.6 + 0.4 * food - acid_pen) * (1 - 0.8 * s.mold), 0.0, 1.0))
 
-    def fast_forward(self, now_h, hours, apple, flies):
+    def fast_forward(self, now_h, hours, apples, flies):
         """Advance the life cycle by `hours` off-line. Returns list of brood ready to eclose."""
-        # off-line egg laying by mated females (they live on/near the fruit between sessions)
+        apples = apples if isinstance(apples, (list, tuple)) else [apples]
+        # females prefer fermenting, yeasty fruit for oviposition (Becher et al. 2012)
+        best = max(range(len(apples)), key=lambda i: apples[i].s.yeast - 0.2 * apples[i].s.mold)
+        ap = apples[best]
         for f in flies:
             if f.cfg.sex == "female" and getattr(f, "mated", False):
-                lam = self.eggs_per_h * hours * min(1.0, 0.3 + apple.s.yeast)
+                lam = self.eggs_per_h * hours * min(1.0, 0.3 + ap.s.yeast)
                 k = self.rng.poisson(lam)
                 if k:
-                    top = apple.center + np.array([0, 0, apple.p.radius_mm])  # on the fruit surface
-                    self.lay(now_h, f.cfg.name, getattr(f, "mate", "?"), top, k)
+                    top = ap.center + np.array([0, 0, ap.p.radius_mm])  # on the fruit surface
+                    self.lay(now_h, f.cfg.name, getattr(f, "mate", "?"), top, k, apple_idx=best)
                     f.events.append((round(f.t, 3), f"laid {k} eggs off-line ({hours:.0f} h)"))
         # mortality applies to the time each individual spends as larva/pupa within the interval
-        surv_d = self.survival_per_day(apple)
+        surv_by_apple = [self.survival_per_day(a) for a in apples]
         ready = []
         for b in self.brood:
             if not b.alive:
@@ -77,6 +81,7 @@ class Population:
             a1 = (now_h + hours - b.laid_h) / 24
             lo, hi = EGG_D, EGG_D + LARVA_D + PUPA_D
             exposed = max(0.0, min(a1, hi) - max(a0, lo))
+            surv_d = surv_by_apple[min(b.apple_idx, len(apples) - 1)]
             if exposed > 0 and self.rng.random() > surv_d ** exposed:
                 b.alive = False
             elif a1 >= hi:

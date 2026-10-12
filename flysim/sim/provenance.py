@@ -104,8 +104,11 @@ def manifest(world, protocol: dict) -> dict:
     """protocol: name, hypothesis, parameters, seed ... (everything needed to reproduce)."""
     m = {"model_version": model_version(), "protocol": protocol,
          "environment": {"o2_pct": world.o2_pct, "co2_ppm": world.co2_ppm,
-                         "temp_c": world.ambient_c, "apple": world.apple.summary(),
-                         "apple_cut": getattr(world.apple, "cut", True),
+                         "temp_c": world.ambient_c,
+                         "apples": [{"summary": a.summary(), "cut": getattr(a, "cut", True),
+                                     "center": a.center.tolist(), "radius": a.p.radius_mm}
+                                    for a in world.apples],
+                         "arena_m": round(2 * world.arena / 1000, 3),
                          "zones": [vars(z) for z in world.zones]},
          "flies": [fly_provenance(f) for f in world.flies]}
     m["aversive_experiment"] = bool(world.zones) or bool(world.shocks)

@@ -73,6 +73,8 @@ class Recorder:
             "meta": meta or {}, "frame_dt": self.frame_dt, "arena": self.world.arena,
             "apple": {"center": apple.center.tolist(), "radius": apple.p.radius_mm,
                       "summary": apple.summary(), "state": vars(apple.s)},
+            "apples": [{"center": a.center.tolist(), "radius": a.p.radius_mm,
+                        "summary": a.summary(), "state": vars(a.s)} for a in self.world.apples],
             "zones": [vars(z) for z in self.world.zones],
             "flies": {f.cfg.name: {"sex": f.cfg.sex, "config": vars(f.cfg), "events": f.events}
                       for f in self.world.flies},

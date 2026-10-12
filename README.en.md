@@ -105,6 +105,12 @@ synapses onto sensory neurons and Kenyon cells).
 - **Apple:** two-stage fermentation (yeast → ethanol + CO₂ + esters; acetic acid bacteria → vinegar),
   blue mould (*Penicillium expansum*: geosmin, patulin), intact vs. cut fruit, temperature (Q10) and
   oxygen dependence.
+- **Several apples** with their own age, cut, size and position; world size in metres
+  (0.1 m cage to 5 m room).
+- **Seeds and trees:** seeds are released from rotten fruit and germinate only after cold
+  stratification (~75 days at 1–7 °C) in moist soil; seedlings grow and, after ~6 years, trees
+  fruit and drop new apples. At a constant 25 °C no tree grows — as in reality.
+- **Seasons (optional):** temperate climate; in winter flies fall into chill coma.
 - **Air:** the container is a well-mixed gas volume with ventilation; fermentation, mould, bacteria and
   flies change CO₂ and O₂ by stoichiometry. A sealed jar becomes anoxic; a ventilated cage does not.
 
@@ -139,11 +145,11 @@ scripts/download_data.sh && .venv/bin/python -m flysim.live
 
 ## Using the web app
 
-1. **Conditions** — oxygen, CO₂, temperature, container volume and ventilation, apple age and whether
-   it is cut, number of males/females, hunger, a hot floor zone, scientific controls (plasticity on/off,
+1. **Conditions** — world size in metres, seasons, soil, oxygen, CO₂, temperature, container
+   volume and ventilation, list of apples (age, cut, size, position), injuries and body schema, number of males/females, hunger, a hot floor zone, scientific controls (plasticity on/off,
    punishment shortcut, spontaneous walking), session length and day fast-forward. Every setting shows
    its normal value.
-2. **Observation** — the arena, every fly's whole brain (each neuron at its real position, flashing when
+2. **Observation** — "+ male / + female" buttons while running, the arena, every fly's whole brain (each neuron at its real position, flashing when
    it spikes), internal state, apple chemistry against reference values, and a live event feed.
 3. **Logs** — download everything as a zip.
 

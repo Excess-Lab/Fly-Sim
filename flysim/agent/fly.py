@@ -162,7 +162,8 @@ class Fly:
                 hot = t_floor if contacts.get(leg) == "floor" else t_air
                 r_noci[off:off + len(ids)] = 2.0 + 20.0 * max(0.0, hot - 40.0)
                 off += len(ids)
-        r_vis = self.vision.rates(self.body.eye(world.apple.center), self.body.yaw,
+        ap = world.nearest_apple(self.body.pos)
+        r_vis = self.vision.rates(self.body.eye(ap.center), self.body.yaw,
                                   world.visual_spheres(self))
         r_hear = self.hearing.rates(world.song_at(self))
         r_int = self.intero.rates(self.meta.energy)
@@ -174,7 +175,7 @@ class Fly:
         r_ppl1 = np.full(len(self.ppl1), punish)
         reward = 0.0
         if self.cfg.us_reward_shortcut and self.body.proboscis and on_apple:
-            reward = 30.0 * world.apple.nutrition()["sugar_frac"] * gains["sugar"]
+            reward = 30.0 * ap.nutrition()["sugar_frac"] * gains["sugar"]
         r_pam = np.full(len(self.pam), reward)
         self.last_temp = temp
         # lesions (body schema): lost or silenced sensors (A85)
@@ -232,24 +233,28 @@ class Fly:
             else:
                 cmd.update(forward=1.0, turn=0.0, takeoff=False)
                 self.lunging -= dt
-            self.body.step(cmd, dt, world.apple.center, world.apple.p.radius_mm, world.arena,
-                           spontaneous=False, o2_pct=world.o2_pct * self.meta.health)
+            near = world.nearest_apple(self.body.pos)
+            self.body.step(cmd, dt, near.center, near.p.radius_mm, world.arena,
+                           spontaneous=False, o2_pct=world.o2_pct * self.meta.health * self._chill())
         else:
-            self.body.step(self.cmd, dt, world.apple.center, world.apple.p.radius_mm, world.arena,
+            near = world.nearest_apple(self.body.pos)
+            self.body.step(self.cmd, dt, near.center, near.p.radius_mm, world.arena,
                            spontaneous=self.cfg.spontaneous,
-                           o2_pct=world.o2_pct * self.meta.health)  # poisoned flies are sluggish
+                           o2_pct=world.o2_pct * self.meta.health * self._chill())  # poison, cold
         # ASSUMPTION(A61): a mated female standing on the fruit lays an egg when oviDNs fire,
         # at most one egg per 30 s
         if (self.cfg.sex == "female" and self.mated and self.cmd.get("oviposit")
                 and self.body.surface == "apple" and self.t - self.last_egg_t > 30.0
                 and getattr(world, "population", None) is not None):
-            world.population.lay(world.clock_h, self.cfg.name, self.mate, self.body.pos)
+            near = world.nearest_apple(self.body.pos)
+            world.population.lay(world.clock_h, self.cfg.name, self.mate, self.body.pos,
+                                 apple_idx=world.apples.index(near))
             self.last_egg_t = self.t
             self.events.append((round(self.t, 3), "laid egg"))
         self.meta.temp_c = getattr(self, "last_temp", world.ambient_c)  # local (zone) temperature
         self.meta.o2_pct = world.o2_pct
         on_food = self.body.proboscis and self.body.surface == "apple"
-        nut = world.apple.nutrition()
+        nut = world.nearest_apple(self.body.pos).nutrition()
         self.meta.step(dt, nut["sugar_frac"], ingesting=on_food)
         dose = nut["patulin"] * self.meta.p.ingest_nl_per_s * 1e-3 * dt / self.meta.p.meal_volume_ul \
             if on_food else 0.0
@@ -259,13 +264,19 @@ class Fly:
             self.events.append((round(self.t, 3), f"{was}->{now}"))
         self.t += dt
 
+    def _chill(self) -> float:
+        """ASSUMPTION(A93): chill coma below ~7 C body temperature, full activity from ~15 C
+        (David et al. 1998; MacMillan & Sinclair 2011). Applied as a vigour factor."""
+        return float(np.clip((self.thermal.T - 7.0) / 8.0, 0.0, 1.0))
+
     def pass_time(self, hours: float, world, fed_from_fruit: bool = False):
         """The organism lives through `hours` off-line (between sessions / retention intervals):
         its own metabolism runs and memories fade (A23). The experimenter only lets time pass."""
         m = self.meta
         m.temp_c, m.o2_pct = world.ambient_c, world.o2_pct
-        sugar_frac = world.apple.nutrition()["sugar_frac"]
-        patulin = world.apple.nutrition()["patulin"]
+        best = max(world.apples, key=lambda a: a.nutrition()["sugar_frac"])  # flies find the best fruit
+        sugar_frac = best.nutrition()["sugar_frac"]
+        patulin = best.nutrition()["patulin"]
         whole, rest = int(hours), hours - int(hours)
         for dt_h in [1.0] * whole + ([rest] if rest > 0 else []):
             # A75: living on the fruit, the fly takes a meal when hungry and sugar is left
@@ -275,6 +286,7 @@ class Fly:
                 m.ingest_toxin(patulin, 0.0)
             m.step(3600.0 * dt_h)
             m.ingest_toxin(0.0, 3600.0 * dt_h)
+            self.cold_h = (getattr(self, "cold_h", 0.0) + dt_h) if world.ambient_c < 5.0 else 0.0
             self.starving_h = (getattr(self, "starving_h", 0.0) + dt_h) if m.energy <= 0.0 else 0.0
         self.brain.forget(hours * 3600)
         self.age_d += hours / 24

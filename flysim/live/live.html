@@ -86,7 +86,7 @@ h1 { font-size:20px; margin:0; } .sub { color:var(--muted); font-size:13px; }
       <div class="pills"><div class="pill"><small>Нейронов на муху</small><b>139–165 тыс.</b></div></div>
     </div>
     <div class="bar">
-      <div class="grow">Поведение не программируется: всё, что муха делает, возникает из её коннектома. Допущения — в ASSUMPTIONS.md</div>
+      <div class="grow">Поведением управляет симуляция коннектома; все приближения и обходы помечены (режим — на карточке мозга, подробно — в manifest.json и ASSUMPTIONS.md)</div>
       <button class="btn" id="reset">Сбросить</button>
       <button class="btn go" id="start">Запустить ▸</button>
     </div>
@@ -104,6 +104,8 @@ h1 { font-size:20px; margin:0; } .sub { color:var(--muted); font-size:13px; }
     </div>
     <div class="bar">
       <div class="grow" id="brood">—</div>
+      <button class="btn" id="add-m">+ самец</button>
+      <button class="btn" id="add-f">+ самка</button>
       <button class="btn" id="pause">Пауза</button>
       <button class="btn" id="stop">Стоп</button>
       <button class="btn dark" id="dl">Скачать логи</button>
@@ -140,7 +142,8 @@ function show(v) { for (const t of document.querySelectorAll('.tab')) t.classLis
 for (const t of document.querySelectorAll('.tab')) t.onclick = () => show(t.dataset.v);
 
 // ---------- setup form ----------
-const GROUPS = { environment: ['Воздух', 'var(--blue)', 'Среда'], apple: ['Яблоко', 'var(--green)', 'Яблоко'],
+const GROUPS = { world: ['Мир', 'var(--green)', 'Мир (размер, сезоны, почва)'],
+  environment: ['Воздух', 'var(--blue)', 'Среда'], apples: ['Яблоки', 'var(--green)', 'Яблоки'],
   injuries: ['Травмы', 'var(--red)', 'Травмы и схема тела'],
   flies: ['Мухи', 'var(--violet)', 'Мухи'], hot_zone: ['Жар', 'var(--red)', 'Неприятный стимул'],
   science: ['Наука', 'var(--orange)', 'Контроли'], run: ['Время', 'var(--ink)', 'Расчёт'] };
@@ -153,6 +156,7 @@ function buildForm() {
     let html = `<div class="sticker">${title}</div><div class="shape">`;
     for (const [k, s] of Object.entries(items)) {
       const v = CFG[g][k];
+      if (s.type === 'apples') { html += `<div class="norm" style="padding:6px 0">${s.norm}</div><div id="apple-list"></div><button class="btn" id="add-apple" style="margin-top:8px">+ Добавить яблоко</button>`; continue; }
       if (s.type === 'select') html += `<div class="field"><label>${s.label}<select data-g="${g}" data-k="${k}">${Object.entries(s.options).map(([ov, ol]) => `<option value="${ov}" ${ov === v ? 'selected' : ''}>${ol}</option>`).join('')}</select></label>${s.norm ? `<div class="norm">${s.norm}</div>` : ''}</div>`;
       else if (s.type === 'bool') html += `<div class="field"><label class="toggle">${s.label}<input type="checkbox" data-g="${g}" data-k="${k}" ${v ? 'checked' : ''}></label>${s.norm ? `<div class="norm">${s.norm}</div>` : ''}</div>`;
       else html += `<div class="field"><label>${s.label}<b id="o-${g}-${k}">${fmt(v, s.step)} ${s.unit}</b></label>
@@ -161,11 +165,29 @@ function buildForm() {
     html += `</div>`;
     card.innerHTML = html; f.appendChild(card);
   }
-  f.querySelectorAll('input, select').forEach(inp => inp.oninput = () => {
+  renderApples();
+  const addA = $('#add-apple'); if (addA) addA.onclick = () => { CFG.apples.list.push({ age_days: 0, cut: true, radius_mm: 30, x_mm: 60 * CFG.apples.list.length, y_mm: 0 }); renderApples(); };
+  f.querySelectorAll('.folder > .shape > .field input, .folder > .shape > .field select').forEach(inp => inp.oninput = () => {
     const { g, k } = inp.dataset, s = SCHEMA.schema[g][k];
     CFG[g][k] = inp.type === 'checkbox' ? inp.checked : (inp.tagName === 'SELECT' ? inp.value : +inp.value);
     if (inp.type === 'range') $(`#o-${g}-${k}`).textContent = `${fmt(inp.value, s.step)} ${s.unit}`;
   });
+}
+function renderApples() {
+  const box = $('#apple-list'); if (!box) return;
+  const half = CFG.world.size_m * 500;
+  box.innerHTML = CFG.apples.list.map((a, i) => `<div class="field" data-i="${i}">
+    <label><b>Яблоко ${i + 1}</b><button class="btn" data-del="${i}" style="padding:2px 8px">удалить</button></label>
+    <label>Возраст<b>${(+a.age_days).toFixed(1)} дн</b></label><input type="range" min="0" max="30" step="0.5" value="${a.age_days}" data-f="age_days">
+    <label class="toggle">Надрезанное<input type="checkbox" ${a.cut ? 'checked' : ''} data-f="cut"></label>
+    <label>Радиус<b>${a.radius_mm} мм</b></label><input type="range" min="10" max="40" step="1" value="${a.radius_mm}" data-f="radius_mm">
+    <label>Позиция X<b>${(a.x_mm / 1000).toFixed(2)} м</b></label><input type="range" min="${-half}" max="${half}" step="5" value="${a.x_mm}" data-f="x_mm">
+    <label>Позиция Y<b>${(a.y_mm / 1000).toFixed(2)} м</b></label><input type="range" min="${-half}" max="${half}" step="5" value="${a.y_mm}" data-f="y_mm">
+  </div>`).join('');
+  box.querySelectorAll('[data-f]').forEach(inp => inp.oninput = () => {
+    const i = +inp.closest('[data-i]').dataset.i, f = inp.dataset.f;
+    CFG.apples.list[i][f] = inp.type === 'checkbox' ? inp.checked : +inp.value; renderApples(); });
+  box.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { CFG.apples.list.splice(+b.dataset.del, 1); renderApples(); });
 }
 $('#reset').onclick = () => { CFG = Object.fromEntries(Object.entries(SCHEMA.schema).map(([g, it]) => [g, Object.fromEntries(Object.entries(it).map(([k, s]) => [k, s.default]))])); buildForm(); };
 $('#start').onclick = async () => {
@@ -178,6 +200,8 @@ $('#start').onclick = async () => {
   $('#start').disabled = false; $('#start').textContent = 'Запустить ▸';
   show('run'); if (!polling) poll();
 };
+$('#add-m').onclick = () => fetch('/api/add_fly', { method: 'POST', body: JSON.stringify({ sex: 'male' }) });
+$('#add-f').onclick = () => fetch('/api/add_fly', { method: 'POST', body: JSON.stringify({ sex: 'female' }) });
 $('#stop').onclick = () => fetch('/api/stop', { method: 'POST', body: '{}' });
 $('#pause').onclick = async e => { const r = await (await fetch('/api/pause', { method: 'POST', body: '{}' })).json(); e.target.textContent = r.paused ? 'Продолжить' : 'Пауза'; };
 $('#dl').onclick = () => location.href = '/api/logs/all.zip';
@@ -205,17 +229,21 @@ function proj(p, W, H, s) { const ca = Math.cos(az), sa = Math.sin(az), ce = Mat
   const x = p[0] * ca - p[1] * sa, y = p[0] * sa + p[1] * ca; return [W / 2 + x * s, H / 2 + (y * ce - p[2] * se) * s * 0.95]; }
 function drawArena() {
   fit(sc); const W = sc.width, H = sc.height; sx.clearRect(0, 0, W, H); if (!cur) return;
-  const A = 55, s = Math.min(W, H) / (2.6 * A) * zoom, dpr = devicePixelRatio || 1;
+  const A = cur.arena_mm || 55, s = Math.min(W, H) / (2.6 * A) * zoom, dpr = devicePixelRatio || 1;
   sx.strokeStyle = css('--folder'); sx.lineWidth = 1;
   for (let g = -A; g <= A + 1e-6; g += A / 4) { for (const [a, b] of [[[g, -A, 0], [g, A, 0]], [[-A, g, 0], [A, g, 0]]]) {
     const p = proj(a, W, H, s), q = proj(b, W, H, s); sx.beginPath(); sx.moveTo(...p); sx.lineTo(...q); sx.stroke(); } }
   for (const z of cur.zones) { sx.fillStyle = 'rgba(229,72,77,0.22)'; sx.beginPath();
     for (let k = 0; k <= 48; k++) { const a = k / 48 * 2 * Math.PI, p = proj([z.center[0] + z.radius * Math.cos(a), z.center[1] + z.radius * Math.sin(a), 0], W, H, s); k ? sx.lineTo(...p) : sx.moveTo(...p); } sx.fill(); }
-  const ap = cur.apple, p = proj(ap.center, W, H, s), R = ap.radius * s;
-  const gr = sx.createRadialGradient(p[0] - R * .3, p[1] - R * .35, R * .1, p[0], p[1], R); gr.addColorStop(0, ap.color_light); gr.addColorStop(1, ap.color);
-  sx.fillStyle = gr; sx.beginPath(); sx.arc(p[0], p[1], R, 0, 7); sx.fill();
-  if (ap.mold > 0.01) { sx.fillStyle = 'rgba(120,150,170,0.75)'; for (let k = 0; k < Math.round(ap.mold * 40); k++) { const a = k * 2.399, rr = R * (0.2 + 0.7 * ((k * 53) % 17) / 17);
-    sx.beginPath(); sx.arc(p[0] + rr * Math.cos(a), p[1] + rr * Math.sin(a) * .9, R * (0.05 + 0.08 * ap.mold), 0, 7); sx.fill(); } }
+  let p = null, R = 0;
+  for (const ap of (cur.apples || [cur.apple])) {
+    p = proj(ap.center, W, H, s); R = Math.max(2, ap.radius * s);
+    const gr = sx.createRadialGradient(p[0] - R * .3, p[1] - R * .35, R * .1, p[0], p[1], R); gr.addColorStop(0, ap.color_light); gr.addColorStop(1, ap.color);
+    sx.fillStyle = gr; sx.beginPath(); sx.arc(p[0], p[1], R, 0, 7); sx.fill();
+    if (ap.mold > 0.01) { sx.fillStyle = 'rgba(120,150,170,0.75)'; for (let k = 0; k < Math.round(ap.mold * 40); k++) { const a = k * 2.399, rr = R * (0.2 + 0.7 * ((k * 53) % 17) / 17);
+      sx.beginPath(); sx.arc(p[0] + rr * Math.cos(a), p[1] + rr * Math.sin(a) * .9, R * (0.05 + 0.08 * ap.mold), 0, 7); sx.fill(); } }
+  }
+  p = proj(cur.apple.center, W, H, s); R = cur.apple.radius * s;
   const br = cur.brood, nb = br.egg + br.larva + br.pupa;
   for (let k = 0; k < Math.min(nb, 80); k++) { const a = k * 2.4, rr = R * (0.25 + 0.6 * ((k * 37) % 10) / 10);
     sx.fillStyle = k < br.egg ? '#fffbe8' : (k < br.egg + br.larva ? '#f1ecd2' : '#8a5a3c'); sx.beginPath(); sx.arc(p[0] + rr * Math.cos(a), p[1] + rr * Math.sin(a) * .8, 2.2 * dpr, 0, 7); sx.fill(); }
@@ -296,7 +324,9 @@ async function poll() {
       for (const n of Object.keys(views)) if (!cur.flies[n]) { views[n].card.remove(); delete views[n]; }
       $('#day').textContent = `день ${Math.floor(cur.clock_h / 24)} · ${(cur.clock_h % 24).toFixed(1)} ч`;
       $('#sess').textContent = `${cur.t.toFixed(1)} с`;
-      const b = cur.brood; $('#brood').textContent = `Яйца ${b.egg} · личинки ${b.larva} · куколки ${b.pupa} · вылупилось ${cur.born} · мух с мозгом ${Object.keys(cur.flies).length}`;
+      const b = cur.brood, pl = cur.plants;
+      const plt = pl ? ` · семена: ${Object.entries(pl.seeds).map(([k, v]) => ({ in_fruit: 'в плоде', dormant: 'спят', stratified: 'готовы', germinated: 'проросли', dead: 'погибли' }[k] || k) + ' ' + v).join(', ')}${pl.seedlings ? ` · сеянцы ${pl.seedlings}, выше всех ${pl.tallest_cm} см` : ''}` : '';
+      $('#brood').textContent = `Яиц ${b.egg} · личинок ${b.larva} · куколок ${b.pupa} · вылупилось ${cur.born} · мух с мозгом ${Object.keys(cur.flies).length} · яблок ${(cur.apples || []).length} · мир ${(2 * cur.arena_mm / 1000).toFixed(2)} м${plt}`;
       $('#envinfo').textContent = `O₂ ${cur.env.o2_pct}% · CO₂ ${cur.env.co2_ppm} ppm · ${cur.env.temp_c} °C`;
       $('#legend').innerHTML = Object.entries(cur.flies).map(([n, f]) => `<span><span class="dot" style="background:${color(f.sex)}"></span>${n}</span>`).join('') +
         Object.entries(SCHEMA.region_names).map(([k, v]) => `<span><span class="dot" style="background:${SCHEMA.region_colors[k]}"></span>${v}</span>`).join('');
