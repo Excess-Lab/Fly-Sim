@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fly-Sim Live</title>
+<style>
+:root { --bg:#f6f5f1; --panel:#fff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e2e0da; --accent:#c2410c;
+  --male:#2563eb; --female:#db2777; --brainbg:#101014; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#121214; --panel:#1b1b1e; --ink:#ececef;
+  --muted:#9a9aa2; --line:#2c2c31; --accent:#fb923c; --male:#60a5fa; --female:#f472b6; --brainbg:#08080a; } }
+:root[data-theme="dark"] { --bg:#121214; --panel:#1b1b1e; --ink:#ececef; --muted:#9a9aa2; --line:#2c2c31;
+  --accent:#fb923c; --male:#60a5fa; --female:#f472b6; --brainbg:#08080a; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif; }
+header { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+header h1 { font-size:17px; margin:0; }
+.pill { font-size:12px; padding:3px 9px; border-radius:99px; background:var(--panel); border:1px solid var(--line); color:var(--muted); }
+.live { color:#16a34a; } .live::before { content:"● "; }
+main { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:12px; padding:12px 16px; }
+@media (max-width:900px) { main { grid-template-columns:1fr; } }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.card h2 { font-size:13px; font-weight:600; margin:0; padding:8px 12px; border-bottom:1px solid var(--line);
+  display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+.card h2 span { color:var(--muted); font-weight:400; }
+#scene { width:100%; aspect-ratio:4/3; display:block; cursor:grab; }
+.brains { display:grid; gap:12px; align-content:start; }
+.brain canvas { width:100%; aspect-ratio:16/9; display:block; background:var(--brainbg); cursor:grab; }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(105px,1fr)); gap:6px; padding:8px 12px; }
+.stat { font-size:12px; color:var(--muted); } .stat b { display:block; color:var(--ink); font-size:13.5px; font-variant-numeric:tabular-nums; }
+.log { max-height:200px; overflow:auto; padding:8px 12px; font:12px ui-monospace,Menlo,monospace; color:var(--muted); }
+.legend { display:flex; gap:12px; padding:6px 12px; font-size:12px; color:var(--muted); flex-wrap:wrap; }
+.dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:-1px; }
+button { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:5px 12px; font:inherit; cursor:pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fly-Sim · живой режим</h1>
+  <span class="pill live" id="conn">подключение…</span>
+  <span class="pill" id="clock">—</span>
+  <span class="pill" id="brood">—</span>
+  <span class="pill" id="status">—</span>
+  <button id="pause">⏸ Пауза расчёта</button>
+</header>
+<main>
+  <section class="card">
+    <h2>Арена <span id="appleinfo"></span></h2>
+    <canvas id="scene"></canvas>
+    <div class="legend" id="legend"></div>
+    <div class="log" id="log"></div>
+  </section>
+  <section class="brains" id="brains"></section>
+</main>
+<script>
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function b64(s, T) { const bin = atob(s); const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); }
+let META = null, cur = null, next = 0;
+const brainStatic = {}, views = {}, allEvents = new Map();
+const color = sex => sex === 'male' ? css('--male') : css('--female');
+
+function fit(c) { const r = c.getBoundingClientRect(); const d = devicePixelRatio || 1;
+  if (c.width !== Math.round(r.width * d)) { c.width = Math.round(r.width * d); c.height = Math.round(r.height * d); } }
+function drag(canvas, onMove) { let d = null;
+  canvas.addEventListener('pointerdown', e => { d = [e.clientX, e.clientY]; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointermove', e => { if (!d) return; onMove(e.clientX - d[0], e.clientY - d[1]); d = [e.clientX, e.clientY]; draw(); });
+  canvas.addEventListener('pointerup', () => d = null);
+  canvas.addEventListener('wheel', e => { e.preventDefault(); onMove(0, 0, e.deltaY); draw(); }, { passive: false }); }
+
+// arena
+const sc = document.getElementById('scene'), sx = sc.getContext('2d');
+let az = -0.6, el = 0.8, zoom = 1;
+drag(sc, (dx, dy, wh) => { az += dx * 0.01; el = Math.min(1.5, Math.max(0.1, el + dy * 0.01)); if (wh) zoom *= wh > 0 ? 0.9 : 1.1; });
+function proj(p, W, H, s) { const ca = Math.cos(az), sa = Math.sin(az), ce = Math.cos(el), se = Math.sin(el);
+  const x = p[0] * ca - p[1] * sa, y = p[0] * sa + p[1] * ca; return [W / 2 + x * s, H / 2 + (y * ce - p[2] * se) * s * 0.95]; }
+const trails = {};
+function drawArena() {
+  fit(sc); const W = sc.width, H = sc.height; sx.clearRect(0, 0, W, H); if (!cur) return;
+  const A = META.arena, s = Math.min(W, H) / (2.6 * A) * zoom;
+  sx.strokeStyle = css('--line');
+  for (let g = -A; g <= A + 1e-6; g += A / 4) { let a = proj([g, -A, 0], W, H, s), b = proj([g, A, 0], W, H, s);
+    sx.beginPath(); sx.moveTo(...a); sx.lineTo(...b); sx.stroke(); a = proj([-A, g, 0], W, H, s); b = proj([A, g, 0], W, H, s);
+    sx.beginPath(); sx.moveTo(...a); sx.lineTo(...b); sx.stroke(); }
+  const ap = cur.apple, p = proj(ap.center, W, H, s), R = ap.radius * s;
+  const g = sx.createRadialGradient(p[0] - R * 0.3, p[1] - R * 0.3, R * 0.1, p[0], p[1], R);
+  g.addColorStop(0, ap.color_light); g.addColorStop(1, ap.color); sx.fillStyle = g; sx.beginPath(); sx.arc(p[0], p[1], R, 0, 7); sx.fill();
+  const br = cur.brood, nb = (br.egg || 0) + (br.larva || 0) + (br.pupa || 0);
+  for (let k = 0; k < Math.min(nb, 60); k++) { const a = k * 2.4, rr = ap.radius * (0.3 + 0.6 * ((k * 37) % 10) / 10);
+    const q = proj([ap.center[0] + rr * Math.cos(a), ap.center[1] + rr * Math.sin(a), ap.center[2] + ap.radius * 0.95], W, H, s);
+    sx.fillStyle = k < br.egg ? '#fff8e1' : (k < br.egg + br.larva ? '#f5f5dc' : '#8d6e63'); sx.beginPath(); sx.arc(q[0], q[1], 2.2, 0, 7); sx.fill(); }
+  for (const [n, f] of Object.entries(cur.flies)) {
+    const tr = trails[n] || []; sx.strokeStyle = color(f.sex); sx.globalAlpha = 0.35; sx.beginPath();
+    tr.forEach((pp, k) => { const q = proj(pp, W, H, s); k ? sx.lineTo(...q) : sx.moveTo(...q); }); sx.stroke(); sx.globalAlpha = 1;
+    const q = proj(f.pos, W, H, s), h = proj([f.pos[0] + 3 * Math.cos(f.yaw), f.pos[1] + 3 * Math.sin(f.yaw), f.pos[2]], W, H, s);
+    const r = Math.max(4, 1.25 * s);
+    if (f.mode === 'fly') { const z = proj([f.pos[0], f.pos[1], 0], W, H, s); sx.fillStyle = 'rgba(0,0,0,.15)'; sx.beginPath(); sx.arc(z[0], z[1], r, 0, 7); sx.fill(); }
+    sx.fillStyle = color(f.sex); sx.beginPath(); sx.arc(q[0], q[1], r, 0, 7); sx.fill();
+    sx.strokeStyle = color(f.sex); sx.lineWidth = 2; sx.beginPath(); sx.moveTo(...q); sx.lineTo(...h); sx.stroke(); sx.lineWidth = 1;
+    if (f.wing > 0.3) { sx.beginPath(); sx.arc(q[0], q[1], r * 2, 0, 7); sx.stroke(); }
+    if (f.proboscis) { sx.fillStyle = css('--accent'); sx.beginPath(); sx.arc(h[0], h[1], 3, 0, 7); sx.fill(); }
+    if (f.copulating) { sx.strokeStyle = '#e11d48'; sx.beginPath(); sx.arc(q[0], q[1], r * 2.6, 0, 7); sx.stroke(); }
+    sx.fillStyle = css('--ink'); sx.font = `${12 * (devicePixelRatio || 1)}px sans-serif`; sx.fillText(n, q[0] + r + 3, q[1] - r);
+  }
+}
+
+// brains
+const brainsEl = document.getElementById('brains');
+async function ensureBrain(n, sex) {
+  if (views[n]) return;
+  if (!brainStatic[sex]) { brainStatic[sex] = 'loading';
+    const b = await (await fetch('/api/brain/' + sex)).json();
+    brainStatic[sex] = { n: b.n, xyz: b64(b.xyz, Float32Array), region: b64(b.region, Uint8Array) }; }
+  if (brainStatic[sex] === 'loading') return;
+  const card = document.createElement('section'); card.className = 'card brain';
+  card.innerHTML = `<h2>Мозг ${n} <span>${brainStatic[sex].n.toLocaleString('ru')} нейронов · ${sex === 'male' ? 'Male CNS' : 'FlyWire'}</span></h2><canvas></canvas><div class="stats"></div>`;
+  brainsEl.appendChild(card);
+  const cv = card.querySelector('canvas');
+  views[n] = { card, cv, ctx: cv.getContext('2d'), stats: card.querySelector('.stats'), az: 0, el: 0.15, zoom: 1, sex };
+  drag(cv, (dx, dy, wh) => { const v = views[n]; v.az += dx * 0.01; v.el = Math.max(-1.4, Math.min(1.4, v.el + dy * 0.01)); if (wh) v.zoom *= wh > 0 ? 0.9 : 1.1; });
+}
+function drawBrain(n, f) {
+  const v = views[n], B = brainStatic[v.sex]; if (!B || B === 'loading') return; fit(v.cv);
+  const W = v.cv.width, H = v.cv.height, c = v.ctx; c.fillStyle = css('--brainbg'); c.fillRect(0, 0, W, H);
+  const ca = Math.cos(v.az), sa = Math.sin(v.az), ce = Math.cos(v.el), se = Math.sin(v.el), S = Math.min(W, H) * 0.48 * v.zoom;
+  const P = i => { const x = B.xyz[3 * i], y = B.xyz[3 * i + 1], z = B.xyz[3 * i + 2]; const X = x * ca - z * sa, Z = x * sa + z * ca; return [W / 2 + X * S, H / 2 + (y * ce - Z * se) * S, x]; };
+  c.fillStyle = 'rgba(160,160,180,0.10)'; const st = Math.max(1, Math.floor(B.n / 22000));
+  for (let i = 0; i < B.n; i += st) { const q = P(i); if (!isNaN(q[2])) c.fillRect(q[0], q[1], 1.2, 1.2); }
+  const idx = b64(f.idx, Uint32Array), val = b64(f.val, Uint8Array);
+  for (let j = 0; j < idx.length; j++) { const i = idx[j], q = P(i); if (isNaN(q[2])) continue;
+    c.fillStyle = META.region_colors[B.region[i]]; c.globalAlpha = Math.min(1, 0.35 + val[j] / 4);
+    const r = (1.2 + Math.min(2, val[j] / 3)) * (devicePixelRatio || 1) * 0.8; c.fillRect(q[0] - r / 2, q[1] - r / 2, r, r); }
+  c.globalAlpha = 1;
+  const S2 = (k, x) => `<div class="stat">${k}<b>${x}</b></div>`, R = f.rates;
+  v.stats.innerHTML = [S2('Активных нейронов', idx.length.toLocaleString('ru')),
+    S2('Режим', `${f.mode === 'fly' ? 'полёт' : 'ходьба'} · ${f.surface === 'apple' ? 'яблоко' : 'пол'}`),
+    S2('Голод', f.hunger.toFixed(2)), S2('Зоб, мкл', f.crop_ul.toFixed(3)),
+    S2('Хоботок', f.proboscis ? 'ест' : '—'), S2('MN9', R.per + ' Гц'), S2('Песня pIP10', R.song + ' Гц'),
+    S2('P1', R.arousal_P1 + ' Гц'), S2('Готовность DNp37', R.receptive + ' Гц'), S2('Яйцеклад oviDN', (R.ovi ?? 0) + ' Гц'),
+    S2('Спарена', f.mated ? 'да' : 'нет'), S2('Возраст, дн', f.age_d), S2('Память KC→MBON', f.mbon_w_min ?? '—')].join('');
+}
+
+function draw() { drawArena(); if (!cur) return; for (const [n, f] of Object.entries(cur.flies)) if (views[n]) drawBrain(n, f); }
+
+async function poll() {
+  try {
+    if (!META) META = await (await fetch('/api/meta')).json();
+    const r = await (await fetch('/api/frames?since=' + next)).json();
+    document.getElementById('conn').textContent = 'идёт расчёт';
+    for (const fr of r.frames) {
+      cur = fr; next = fr.i + 1;
+      for (const [n, f] of Object.entries(fr.flies)) { (trails[n] = trails[n] || []).push(f.pos); if (trails[n].length > 300) trails[n].shift();
+        for (const e of f.events) allEvents.set(n + e[0] + e[1], [fr.clock_h, n, f.sex, e]); }
+    }
+    if (cur) {
+      for (const [n, f] of Object.entries(cur.flies)) ensureBrain(n, f.sex);
+      for (const n of Object.keys(views)) if (!cur.flies[n]) { views[n].card.remove(); delete views[n]; }
+      const d = Math.floor(cur.clock_h / 24), h = (cur.clock_h % 24).toFixed(2);
+      document.getElementById('clock').textContent = `мир: день ${d}, ${h} ч · сессия ${cur.t.toFixed(1)} с`;
+      const b = cur.brood; document.getElementById('brood').textContent = `яйца ${b.egg} · личинки ${b.larva} · куколки ${b.pupa}`;
+      document.getElementById('status').textContent = cur.status;
+      document.getElementById('appleinfo').textContent = cur.apple.summary;
+      document.getElementById('legend').innerHTML = Object.entries(cur.flies).map(([n, f]) => `<span><span class="dot" style="background:${color(f.sex)}"></span>${n}</span>`).join('') +
+        Object.entries(META.region_names).map(([k, v]) => `<span><span class="dot" style="background:${META.region_colors[k]}"></span>${v}</span>`).join('');
+      const ev = [...allEvents.values()].slice(-80).reverse();
+      document.getElementById('log').innerHTML = ev.map(([ch, n, sex, e]) => `д${Math.floor(ch / 24)} ${e[0].toFixed(1)}с <b style="color:${color(sex)}">${n}</b> ${e[1]}`).join('<br>') || 'событий пока нет';
+      draw();
+    }
+  } catch (e) { document.getElementById('conn').textContent = 'нет связи с сервером'; }
+  setTimeout(poll, 250);
+}
+document.getElementById('pause').onclick = async e => { const r = await (await fetch('/api/pause')).json(); e.target.textContent = r.paused ? '▶ Продолжить' : '⏸ Пауза расчёта'; };
+addEventListener('resize', draw);
+poll();
+</script>
+</body>
+</html>
