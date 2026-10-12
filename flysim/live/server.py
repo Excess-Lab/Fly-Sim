@@ -64,6 +64,31 @@ SCHEMA = {
                       "step": 1.0, "default": 18.0, "norm": "кормовые опыты: 18–24 ч"},
         "virgin": {"label": "Самки девственницы", "type": "bool", "default": True,
                    "norm": "спаренная самка не готова к спариванию и откладывает яйца"},
+        "female_connectome": {"label": "Нервная система самки", "type": "select",
+                              "options": {"female": "FlyWire v783 — мозг (проверен)",
+                                          "female_banc": "BANC — мозг + VNC (экспериментально)"},
+                              "default": "female",
+                              "norm": "FlyWire без брюшной нервной цепочки; BANC пока не эквивалентен (KNOWN_ISSUES #6)"},
+    },
+    "injuries": {
+        **{leg: {"label": f"Нога: {name}", "type": "select",
+                 "options": {"intact": "цела", "paralyzed": "парализована", "amputated": "отсутствует"},
+                 "default": "intact", "norm": ""}
+           for leg, name in (("lf", "левая передняя"), ("lm", "левая средняя"), ("lh", "левая задняя"),
+                             ("rf", "правая передняя"), ("rm", "правая средняя"), ("rh", "правая задняя"))},
+        "wing_left": {"label": "Повреждение левого крыла", "unit": "%", "min": 0, "max": 100, "step": 5,
+                      "default": 0, "norm": "снижает подъёмную силу; асимметрия разворачивает в полёте"},
+        "wing_right": {"label": "Повреждение правого крыла", "unit": "%", "min": 0, "max": 100, "step": 5,
+                       "default": 0, "norm": ""},
+        "antenna_left": {"label": "Левый усик удалён", "type": "bool", "default": False,
+                         "norm": "молчат обоняние, слух, термосенсоры этой стороны"},
+        "antenna_right": {"label": "Правый усик удалён", "type": "bool", "default": False, "norm": ""},
+        "eye_left": {"label": "Левый глаз закрыт", "type": "bool", "default": False, "norm": ""},
+        "eye_right": {"label": "Правый глаз закрыт", "type": "bool", "default": False, "norm": ""},
+        "apply_to": {"label": "Кому", "type": "select",
+                     "options": {"all": "всем мухам", "first_male": "первому самцу",
+                                 "first_female": "первой самке"}, "default": "all",
+                     "norm": "травму задаёт экспериментатор; организм о ней не «знает»"},
     },
     "hot_zone": {
         "enabled": {"label": "Горячая зона на полу", "type": "bool", "default": False,
@@ -76,8 +101,10 @@ SCHEMA = {
     "science": {
         "plasticity": {"label": "Обучение (пластичность KC→MBON)", "type": "bool", "default": True,
                        "norm": "выкл. — контроль «только рефлексы»"},
-        "us_shortcut": {"label": "Боль → дофамин по данным опытов (A24)", "type": "bool",
+        "us_shortcut": {"label": "Наказание → дофамин PPL1 по данным опытов (A24)", "type": "bool",
                         "default": True, "norm": "выкл. — только путь по коннектому"},
+        "reward_shortcut": {"label": "Сахар → дофамин PAM по данным опытов (A25)", "type": "bool",
+                            "default": True, "norm": "выкл. — только путь по коннектому"},
         "spontaneous": {"label": "Спонтанная ходьба (A30)", "type": "bool", "default": True,
                         "norm": "выкл. — двигается только по командам мозга"},
     },
@@ -152,13 +179,29 @@ class Simulation:
                 k += 1
         self.world.rebuild_physics()
 
+    def _injuries_for(self, sex, k):
+        inj = self.cfg.get("injuries", {})
+        who = inj.get("apply_to", "all")
+        if who == "first_male" and not (sex == "male" and k == 1):
+            return None
+        if who == "first_female" and not (sex == "female" and k == 1):
+            return None
+        return {"legs": {l: inj.get(l, "intact") for l in ("lf", "lm", "lh", "rf", "rm", "rh")},
+                "wing_damage": {"left": inj.get("wing_left", 0) / 100, "right": inj.get("wing_right", 0) / 100},
+                "antenna": {sd: "removed" if inj.get(f"antenna_{sd}") else "intact" for sd in ("left", "right")},
+                "eye": {sd: "covered" if inj.get(f"eye_{sd}") else "open" for sd in ("left", "right")}}
+
     def add_fly(self, sex, pos, yaw, starved_h, note="", calibrate=True):
         sci = self.cfg["science"]
         self.n_made[sex] += 1
         name = f"{'♂' if sex == 'male' else '♀'}{self.n_made[sex]}"
         f = Fly(FlyConfig(name, sex, starved_h=starved_h, seed=self.n_made[sex] * 7 + (sex == "male"),
                           plasticity=bool(sci["plasticity"]), us_punish_shortcut=bool(sci["us_shortcut"]),
+                          us_reward_shortcut=bool(sci.get("reward_shortcut", True)),
                           spontaneous=bool(sci["spontaneous"]),
+                          injuries=self._injuries_for(sex, self.n_made[sex]),
+                          connectome=(self.cfg["flies"].get("female_connectome", "female")
+                                      if sex == "female" else ""),
                           body="nmf"), pos=pos, yaw=yaw)
         if note:
             f.events.append((round(f.t, 3), note))
@@ -197,6 +240,9 @@ class Simulation:
                 "valence": round(r.get("pam", 0.0) - r.get("ppl1", 0.0), 1),
                 "mbon_w_min": round(float(f.brain.kc_mbon_strength().min()), 3) if f.brain.pl_on else None,
                 "n_active": int(np.count_nonzero(c)),
+                "schema": f.schema.summary(),
+                "dataset": f.dataset_name,
+                "mode": __import__("flysim.sim.provenance", fromlist=["mechanism_mode"]).mechanism_mode(f.cfg),
                 "idx": b64(nz.astype(np.uint32)), "val": b64(np.minimum(c[nz], 255).astype(np.uint8)),
             }
         fr["events"] = self.log.events[-60:]

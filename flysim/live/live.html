@@ -38,6 +38,11 @@ h1 { font-size:20px; margin:0; } .sub { color:var(--muted); font-size:13px; }
 .field label { display:flex; justify-content:space-between; gap:8px; }
 .field label b { font-weight:600; font-variant-numeric:tabular-nums; }
 .field input[type=range] { width:100%; accent-color:var(--ink); }
+.field select { border:1px solid var(--line); background:var(--panel); border-radius:6px; padding:2px 6px; max-width:60%; }
+.badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:99px; background:var(--folder); color:var(--ink); margin-left:6px; }
+.badge.warn { background:#fde68a; color:#78350f; }
+.legs { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; padding:0 12px 10px; font-size:11.5px; color:var(--muted); }
+.legs div b { color:var(--ink); font-weight:600; }
 .field .norm { font-size:11.5px; color:var(--muted); }
 .toggle { display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; }
 .toggle input { width:36px; height:20px; appearance:none; background:var(--folder); border-radius:99px; position:relative; cursor:pointer; flex:none; }
@@ -136,6 +141,7 @@ for (const t of document.querySelectorAll('.tab')) t.onclick = () => show(t.data
 
 // ---------- setup form ----------
 const GROUPS = { environment: ['Воздух', 'var(--blue)', 'Среда'], apple: ['Яблоко', 'var(--green)', 'Яблоко'],
+  injuries: ['Травмы', 'var(--red)', 'Травмы и схема тела'],
   flies: ['Мухи', 'var(--violet)', 'Мухи'], hot_zone: ['Жар', 'var(--red)', 'Неприятный стимул'],
   science: ['Наука', 'var(--orange)', 'Контроли'], run: ['Время', 'var(--ink)', 'Расчёт'] };
 function fmt(v, step) { return step && step < 1 ? (+v).toFixed(String(step).split('.')[1].length) : String(Math.round(v)); }
@@ -147,17 +153,18 @@ function buildForm() {
     let html = `<div class="sticker">${title}</div><div class="shape">`;
     for (const [k, s] of Object.entries(items)) {
       const v = CFG[g][k];
-      if (s.type === 'bool') html += `<div class="field"><label class="toggle">${s.label}<input type="checkbox" data-g="${g}" data-k="${k}" ${v ? 'checked' : ''}></label>${s.norm ? `<div class="norm">${s.norm}</div>` : ''}</div>`;
+      if (s.type === 'select') html += `<div class="field"><label>${s.label}<select data-g="${g}" data-k="${k}">${Object.entries(s.options).map(([ov, ol]) => `<option value="${ov}" ${ov === v ? 'selected' : ''}>${ol}</option>`).join('')}</select></label>${s.norm ? `<div class="norm">${s.norm}</div>` : ''}</div>`;
+      else if (s.type === 'bool') html += `<div class="field"><label class="toggle">${s.label}<input type="checkbox" data-g="${g}" data-k="${k}" ${v ? 'checked' : ''}></label>${s.norm ? `<div class="norm">${s.norm}</div>` : ''}</div>`;
       else html += `<div class="field"><label>${s.label}<b id="o-${g}-${k}">${fmt(v, s.step)} ${s.unit}</b></label>
         <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${v}" data-g="${g}" data-k="${k}">${s.norm ? `<div class="norm">Норма: ${s.norm}</div>` : ''}</div>`;
     }
     html += `</div>`;
     card.innerHTML = html; f.appendChild(card);
   }
-  f.querySelectorAll('input').forEach(inp => inp.oninput = () => {
+  f.querySelectorAll('input, select').forEach(inp => inp.oninput = () => {
     const { g, k } = inp.dataset, s = SCHEMA.schema[g][k];
-    CFG[g][k] = inp.type === 'checkbox' ? inp.checked : +inp.value;
-    if (inp.type !== 'checkbox') $(`#o-${g}-${k}`).textContent = `${fmt(inp.value, s.step)} ${s.unit}`;
+    CFG[g][k] = inp.type === 'checkbox' ? inp.checked : (inp.tagName === 'SELECT' ? inp.value : +inp.value);
+    if (inp.type === 'range') $(`#o-${g}-${k}`).textContent = `${fmt(inp.value, s.step)} ${s.unit}`;
   });
 }
 $('#reset').onclick = () => { CFG = Object.fromEntries(Object.entries(SCHEMA.schema).map(([g, it]) => [g, Object.fromEntries(Object.entries(it).map(([k, s]) => [k, s.default]))])); buildForm(); };
@@ -232,9 +239,10 @@ async function ensureBrain(n, sex) {
     brainStatic[sex] = { n: b.n, xyz: b64(b.xyz, Float32Array), region: b64(b.region, Uint8Array) }; }
   if (brainStatic[sex] === 'loading' || views[n]) return;
   const card = document.createElement('div'); card.className = 'panel brain';
-  card.innerHTML = `<div class="ph"><h4>Мозг ${n}</h4><span>${brainStatic[sex].n.toLocaleString('ru')} нейронов · ${sex === 'male' ? 'Male CNS' : 'FlyWire'}</span></div><canvas></canvas><div class="stats"></div>`;
+  card.innerHTML = `<div class="ph"><h4>Мозг ${n}<span class="badge mode"></span></h4><span class="ds"></span></div><canvas></canvas><div class="stats"></div><div class="legs"></div>`;
   $('#brains').appendChild(card); const cv = card.querySelector('canvas');
-  views[n] = { card, cv, ctx: cv.getContext('2d'), stats: card.querySelector('.stats'), az: 0, el: .15, zoom: 1, sex };
+  views[n] = { card, cv, ctx: cv.getContext('2d'), stats: card.querySelector('.stats'), legs: card.querySelector('.legs'),
+    mode: card.querySelector('.mode'), ds: card.querySelector('.ds'), az: 0, el: .15, zoom: 1, sex };
   drag(cv, (dx, dy, wh) => { const v = views[n]; v.az += dx * .01; v.el = Math.max(-1.4, Math.min(1.4, v.el + dy * .01)); if (wh) v.zoom *= wh > 0 ? .9 : 1.1; });
 }
 function drawBrain(n, f) {
@@ -257,6 +265,13 @@ function drawBrain(n, f) {
     S2('Песня pIP10', R.song + ' Гц'), S2('Возбуждение P1', R.arousal_P1 + ' Гц'), S2('Готовность DNp37', R.receptive + ' Гц'),
     S2('Яйцеклад oviDN', (R.ovi ?? 0) + ' Гц'), S2('Спарена', f.mated ? 'да' : 'нет'), S2('Память KC→MBON', f.mbon_w_min ?? '—'),
     S2('Температура', f.temp + ' °C'), S2('Возраст', f.age_d + ' дн')].join('');
+  const MODES = { connectome_only: 'только коннектом', connectome_plus_approximations: 'коннектом + приближения', experimental_shortcuts: 'есть обходы' };
+  v.mode.textContent = MODES[f.mode] || f.mode; v.mode.classList.toggle('warn', f.mode === 'experimental_shortcuts');
+  v.ds.textContent = f.dataset;
+  const ST = { intact: 'цела', paralyzed: 'парализ.', amputated: 'нет' }, LN = { lf: 'Л пер', lm: 'Л ср', lh: 'Л зад', rf: 'П пер', rm: 'П ср', rh: 'П зад' };
+  const sc = f.schema;
+  v.legs.innerHTML = Object.entries(sc.legs).map(([l, o]) => `<div>${LN[l]}: <b>${ST[o.state]}</b> · опора ${(o.contact * 100).toFixed(0)}%</div>`).join('') +
+    `<div>крылья: <b>${sc.wings.left * 100}% / ${sc.wings.right * 100}%</b></div><div>усики: <b>${sc.antenna.left === 'intact' ? 'Л' : '—'} ${sc.antenna.right === 'intact' ? 'П' : '—'}</b></div><div>глаза: <b>${sc.eye.left === 'open' ? 'Л' : '—'} ${sc.eye.right === 'open' ? 'П' : '—'}</b></div>`;
 }
 function drawApple() {
   if (!cur) return; const st = cur.apple.state, N = SCHEMA.apple_norms;
