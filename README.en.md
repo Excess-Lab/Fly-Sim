@@ -60,11 +60,12 @@ coverage are saved in `manifest.json`.
 
 ### Nervous systems
 
-| | Female | Male |
-|---|---|---|
-| Connectome | FlyWire v783 brain (Dorkenwald et al. 2024) | Janelia Male CNS v1.0: brain + optic lobes + ventral nerve cord |
-| Neurons / connections | 138,639 / 15.1 M | 164,587 / 25.6 M |
-| Female full CNS | BANC 888 (brain + VNC, 181,627 neurons) — **experimental**, not yet equivalent to FlyWire | — |
+| | Female (reference) | Female (full CNS, experimental) | Male |
+|---|---|---|---|
+| Connectome | FlyWire v783 (Dorkenwald et al. 2024) | BANC 888 (Bates et al. 2025) | Janelia Male CNS v1.0 |
+| Contains | brain + optic lobes | brain + optic lobes + ventral nerve cord (VNC) | **full CNS:** brain + optic lobes + ventral nerve cord (VNC) |
+| Neurons / connections | 138,639 / 15.1 M | 181,627 / 13.6 M | 164,587 / 25.6 M |
+| Status | validated against published results | not yet equivalent to FlyWire | validated after calibration |
 | Neuron model | Leaky integrate-and-fire (Shiu et al. 2024), event-driven, Numba | same, synaptic weight calibrated across datasets (×1/1.78, 7,220 matched cell types) |
 
 The simulator reproduces the published Brian2 reference **spike for spike** (9,054 of 9,054 spikes in 1 s)
