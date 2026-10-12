@@ -13,6 +13,8 @@ Literature:
 """
 from dataclasses import dataclass
 
+import numpy as np
+
 
 @dataclass
 class MetabolismParams:
@@ -32,6 +34,7 @@ class MetabolismParams:
     # ASSUMPTION(A14): maximal modulation factors. Inagaki 2012/2014 report roughly 2-fold
     # changes of GRN Ca2+ responses between fed and 24 h starved flies.
     sugar_gain_max: float = 2.0
+    sugar_gain_min: float = 0.5   # sated: sugar GRN responses ~4x lower than 24 h starved
     bitter_gain_min: float = 0.5
     or42b_gain_max: float = 2.0
     or85a_gain_min: float = 0.5
@@ -43,6 +46,8 @@ class Metabolism:
     energy: float = 1.0       # 0 = starved, 1 = fed
     crop_ul: float = 0.0      # food in crop
     crop_sugar_ul: float = 0.0  # sugar-equivalent volume in crop
+    temp_c: float = 25.0
+    o2_pct: float = 20.9
 
     @classmethod
     def starved(cls, hours: float, p: MetabolismParams | None = None):
@@ -62,18 +67,21 @@ class Metabolism:
             dv = p.ingest_nl_per_s * 1e-3 * dt_s
             self.crop_ul += dv
             self.crop_sugar_ul += dv * ingest_sugar_frac
-        frac = dt_s / p.crop_empty_tau_s
+        frac = 1.0 - np.exp(-dt_s / p.crop_empty_tau_s)  # exact for any dt (fast-forward)
         sugar_absorbed = self.crop_sugar_ul * frac
         self.crop_ul -= self.crop_ul * frac
         self.crop_sugar_ul -= sugar_absorbed
+        # ASSUMPTION(A15): metabolic rate Q10 = 2 around 25 C; hypoxia lowers it proportionally
+        # below 10 % O2 (flies enter hypometabolism, Haddad 1997; Van Voorhies 2009)
+        rate = 2.0 ** ((self.temp_c - 25.0) / 10.0) * min(1.0, self.o2_pct / 10.0)
         self.energy = min(1.0, max(0.0, self.energy + sugar_absorbed * p.energy_per_ul_sugar
-                                   - dt_s / (p.starvation_time_to_empty_h * 3600)))
+                                   - rate * dt_s / (p.starvation_time_to_empty_h * 3600)))
 
     def sensory_gains(self) -> dict:
         h = self.hunger
         p = self.p
         return {
-            "sugar": 1.0 + (p.sugar_gain_max - 1.0) * h,
+            "sugar": p.sugar_gain_min + (p.sugar_gain_max - p.sugar_gain_min) * h,
             "bitter": 1.0 - (1.0 - p.bitter_gain_min) * h,
             "ORN_DM1": 1.0 + (p.or42b_gain_max - 1.0) * h,
             "ORN_DM5": 1.0 - (1.0 - p.or85a_gain_min) * h,

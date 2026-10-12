@@ -22,6 +22,8 @@ class World:
     flies: list = field(default_factory=list)
     zones: list = field(default_factory=list)
     ambient_c: float = 25.0
+    o2_pct: float = 20.9          # normal air 20.9 %
+    co2_ppm: float = 420.0        # outdoor air ~420 ppm
     odor_scale: float = 1.0
     extra_odor_sources: list = field(default_factory=list)  # (xyz, {odorant: strength}, radius)
     shocks: dict = field(default_factory=dict)              # fly name -> PPL1 drive Hz
@@ -33,7 +35,9 @@ class World:
     def odor_at(self, x, me) -> dict:
         """Steady-state diffusion from spherical sources: c(r) = c_s * R / r.
         ASSUMPTION(A42): still air, no turbulence or wind."""
-        out = {}
+        # ASSUMPTION(A42b): CO2 in odour units of 1 = 1 % CO2 (Gr21a/Gr63a neurons respond from
+        # ~0.1 % and drive avoidance at 0.1-1 %; Suh et al. 2004; Jones et al. 2007)
+        out = {"CO2": self.co2_ppm / 1e4}
         ac, ar = self.apple.center, self.apple.p.radius_mm
         f = ar / max(np.linalg.norm(x - ac), ar)
         for k, v in self.apple.odor_sources().items():

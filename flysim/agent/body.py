@@ -43,21 +43,31 @@ class Body:
         return np.array([np.cos(self.yaw), np.sin(self.yaw), 0.0])
 
     def step(self, cmd: dict, dt: float, apple_c: np.ndarray, apple_r: float, arena: float,
-             spontaneous: bool = True):
+             spontaneous: bool = True, o2_pct: float = 20.9):
         p = self.p
+        # ASSUMPTION(A70): hypoxia. Flies keep moving down to ~5-8 % O2, slow down below, and fall
+        # into reversible stupor at <~2 % within a minute (Haddad et al. 1997; Krishnan 1997).
+        vigor = float(np.clip((o2_pct - 2.0) / 6.0, 0.0, 1.0))
+        if vigor <= 0.0:
+            if self.mode == "fly":
+                self.mode, self.flight_t = "walk", 0.0
+                self.pos[2] = 0.0 if self.surface == "floor" else self.pos[2]
+            self.proboscis = False
+            self.wing_ext = 0.0
+            return
         self.proboscis = cmd["proboscis"] and self.mode == "walk"
         self.wing_ext = cmd.get("song", 0.0) if self.mode == "walk" else 0.0
         if self.mode == "walk":
             if cmd["takeoff"]:
                 self.mode, self.flight_t = "fly", 0.0
             else:
-                fwd = p.v_walk * cmd["forward"] - p.v_back * cmd["backward"]
-                turn = p.w_turn * cmd["turn"]
+                fwd = vigor * (p.v_walk * cmd["forward"] - p.v_back * cmd["backward"])
+                turn = vigor * p.w_turn * cmd["turn"]
                 if spontaneous and not self.proboscis:
-                    fwd += p.spont_speed
+                    fwd += vigor * p.spont_speed
                     turn += p.spont_turn_sd * self.rng.standard_normal() / np.sqrt(dt / 0.05)
                 if self.proboscis:
-                    fwd = min(fwd, 0.0) * 0.0  # feeding flies stand still
+                    fwd, turn = 0.0, 0.0  # feeding flies stand still
                 self.yaw += turn * dt
                 self._walk(fwd * dt, apple_c, apple_r)
         if self.mode == "fly":

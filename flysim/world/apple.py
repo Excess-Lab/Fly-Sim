@@ -30,6 +30,11 @@ class AppleParams:
     lag_aab_h: float = 36.0       # bacteria establish after yeast acidify/produce ethanol
     q_sugar: float = 0.25         # g/100g/h sugar fermented at full yeast biomass
     q_eth: float = 0.08           # g/100g/h ethanol oxidised at full bacterial biomass
+    # ASSUMPTION(A40b): environment dependence. Microbial rates Q10 = 2 around 25 C.
+    # Acetobacter is an obligate aerobe: growth ~ O2/(O2 + 1 %). Yeast ferments with or without O2.
+    # Intact skin blocks microbes: inoculum 1e-6 (rots over weeks) vs cut/damaged 1e-3.
+    q10: float = 2.0
+    k_o2_pct: float = 1.0
 
 
 @dataclass
@@ -45,18 +50,27 @@ class AppleState:
 
 
 class Apple:
-    def __init__(self, p: AppleParams | None = None, center=(0.0, 0.0)):
+    def __init__(self, p: AppleParams | None = None, center=(0.0, 0.0), cut: bool = True,
+                 temp_c: float = 25.0, o2_pct: float = 20.9):
         self.p = p or AppleParams()
-        self.s = AppleState(sugar=self.p.sugar0)
+        self.s = AppleState(sugar=self.p.sugar0, yeast=1e-3 if cut else 1e-6,
+                            aab=5e-4 if cut else 5e-7)
+        self.cut = cut
+        self.temp_c = temp_c
+        self.o2_pct = o2_pct
         self.center = np.array([center[0], center[1], self.p.radius_mm])  # resting on the floor
 
     def age(self, hours: float, dt_h: float = 0.05):
         """Advance fermentation by `hours` (days-scale process, independent of fly timescale)."""
         p, s = self.p, self.s
+        qt = p.q10 ** ((self.temp_c - 25.0) / 10.0)
+        if not self.cut:
+            qt *= 0.05  # intact skin: microbes only at micro-wounds; apples keep for weeks
+        o2f = self.o2_pct / (self.o2_pct + p.k_o2_pct)
         for _ in range(int(np.ceil(hours / dt_h))):
             mono_s = s.sugar / (p.k_sugar + s.sugar)
-            g_y = p.mu_yeast * s.yeast * (1 - s.yeast) * mono_s
-            used = min(s.sugar, p.q_sugar * s.yeast * mono_s * dt_h)  # fermentation ~ biomass
+            g_y = qt * p.mu_yeast * s.yeast * (1 - s.yeast) * mono_s
+            used = min(s.sugar, qt * p.q_sugar * s.yeast * mono_s * dt_h)  # fermentation ~ biomass
             s.ferm_rate = used / dt_h
             s.sugar -= used
             s.ethanol += p.yield_eth * used
@@ -64,8 +78,8 @@ class Apple:
             s.yeast += g_y * dt_h
             if s.age_h > p.lag_aab_h:
                 mono_e = s.ethanol / (p.k_eth + s.ethanol)
-                g_a = p.mu_aab * s.aab * (1 - s.aab) * mono_e
-                conv = min(s.ethanol, p.q_eth * s.aab * mono_e * dt_h)
+                g_a = qt * o2f * p.mu_aab * s.aab * (1 - s.aab) * mono_e
+                conv = min(s.ethanol, qt * o2f * p.q_eth * s.aab * mono_e * dt_h)
                 s.ethanol -= conv
                 s.acetic += p.yield_ac * conv
                 s.aab += g_a * dt_h
@@ -95,15 +109,21 @@ class Apple:
             "CO2": 2.0 * s.ferm_rate,  # CO2 only while sugar is actively fermented
         }
 
+    def osmolarity(self) -> float:
+        """Osm/kg of the juice from dissolved sugars (hexose 180 g/mol) and acetic acid."""
+        s = self.s
+        return s.sugar * 10 / 180.0 + s.acetic * 10 / 60.0 * 0.05  # acetic acid is weak (~5% ionised)
+
     def surface_taste(self) -> dict:
-        """Taste at the surface, normalised 0..1 for GRN encoding."""
+        """Physical surface chemistry. sugar normalised to a sweet meal (1 = ~10 g/100 g)."""
         s = self.s
         return {
             "sugar": min(1.0, s.sugar / 10.0),
-            "water": 0.9,
-            "ethanol": min(1.0, s.ethanol / 5.0),
-            "acid": min(1.0, s.acetic / 3.0),
-            "yeast": min(1.0, s.yeast),       # amino acids / yeast protein
+            "osmolarity": self.osmolarity(),
+            "wet": 1.0,
+            "ethanol_g": s.ethanol,
+            "acetic_g": s.acetic,
+            "yeast": min(1.0, s.yeast),
         }
 
     def nutrition(self) -> dict:

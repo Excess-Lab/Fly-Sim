@@ -70,14 +70,36 @@ class Olfaction:
 # ------------------------------------------------------------------------------------------
 # gustation
 # ASSUMPTION(A51): GRN class -> tastant (FlyWire v3 cell_sub_class labels; Male CNS by type).
+# LB1e + LB2 are the Ir94e-like set of Shiu et al. 2024 whose activation suppresses feeding; they
+# respond to low salt, which a fruit does not offer (apple Na ~1 mg/100 g), so they stay at
+# baseline. Yeast/amino-acid taste (Ir76b) has no identified class in the connectome -> unused.
 TASTE_CLASSES = {
     "sugar": r"^LB3[bc]$",
     "water": r"^LB3a$",
     "bitter": r"^LB1[a-d]$",
-    "yeast": r"^LB1e$",        # glutamate / amino acid sensing (Ir76b-like)
-    "acid": r"^LB2[abc]$",     # putative aversive (acid, high ethanol)
+    "ir94e": r"^(LB1e|LB2[abc])$",
     "salt_high": r"^LB3d$",
 }
+
+
+def fruit_taste_drive(taste: dict) -> dict:
+    """Map surface chemistry to GRN class drive (0..1).
+    water: ppk28 water cells respond to low osmolarity and are silenced by high osmolarity
+      (Cameron et al. 2010); apple juice ~0.6-0.8 Osm -> drive ~0. ASSUMPTION(A51b): linear
+      drop from 1 (pure water) to 0 at 0.3 Osm.
+    bitter: acids and high ethanol activate bitter GRNs (Charlu et al. 2013; acetic acid
+      aversive above ~1 %). ASSUMPTION(A51c): ramps 1->5 g/100 g acetic, 3->8 g/100 g ethanol.
+    """
+    osm = taste.get("osmolarity", 0.0)
+    return {
+        "sugar": taste.get("sugar", 0.0),
+        "water": max(0.0, 1.0 - osm / 0.3) * taste.get("wet", 0.0),
+        "bitter": max(taste.get("bitter", 0.0),
+                      min(1.0, max(0.0, (taste.get("acetic_g", 0.0) - 1.0) / 4.0)
+                          + max(0.0, (taste.get("ethanol_g", 0.0) - 3.0) / 5.0))),
+        "ir94e": 0.0,
+        "salt_high": 0.0,
+    }
 
 
 class Gustation:
@@ -91,11 +113,10 @@ class Gustation:
         """taste: normalised 0..1 per class; contact: 0 (none) .. 1 (proboscis on food).
         ASSUMPTION(A52): GRN rate = 150 Hz * concentration * contact, spontaneous ~1 Hz
         (Hiroi et al. 2002; Dahanukar et al. 2007 orders of magnitude)."""
+        drive = fruit_taste_drive(taste)
         out = []
         for k, ids in self.groups.items():
-            c = taste.get(k, 0.0)
-            if k == "acid":
-                c = max(c, max(0.0, taste.get("ethanol", 0.0) - 0.6))  # high ethanol aversive
+            c = drive.get(k, 0.0)
             r = 1.0 + 150.0 * c * contact * self.gains.get(k, 1.0)
             out.append(np.full(len(ids), r))
         return np.concatenate(out) if out else np.zeros(0)

@@ -137,7 +137,7 @@ class Fly:
             self.events.append((round(self.t, 3), "copulation ended"))
         if not self.copulating:
             self.body.step(self.cmd, dt, world.apple.center, world.apple.p.radius_mm, world.arena,
-                           spontaneous=self.cfg.spontaneous)
+                           spontaneous=self.cfg.spontaneous, o2_pct=world.o2_pct)
         # ASSUMPTION(A61): a mated female standing on the fruit lays an egg when oviDNs fire,
         # at most one egg per 30 s
         if (self.cfg.sex == "female" and self.mated and self.cmd.get("oviposit")
@@ -146,9 +146,11 @@ class Fly:
             world.population.lay(world.clock_h, self.cfg.name, self.mate, self.body.pos)
             self.last_egg_t = self.t
             self.events.append((round(self.t, 3), "laid egg"))
+        self.meta.temp_c = world.ambient_c
+        self.meta.o2_pct = world.o2_pct
         on_food = self.body.proboscis and self.body.surface == "apple"
         nut = world.apple.nutrition()
-        self.meta.step(dt, nut["sugar_frac"] + 0.3 * nut["yeast_frac"], ingesting=on_food)
+        self.meta.step(dt, nut["sugar_frac"], ingesting=on_food)
         now = (self.body.mode, self.body.surface, self.body.proboscis)
         if now != was:
             self.events.append((round(self.t, 3), f"{was}->{now}"))
