@@ -72,7 +72,8 @@ def export(run_dir: Path, max_active_per_frame: int = 6000) -> Path:
         name = next(iter(frames))
         ts = np.array([f["t"] for f in frames[name]])
         for z in data["zones"]:
-            z["schedule"] = ((ts > 20.0) & (ts <= 50.0)).tolist()
+            tb, tt = meta.get("t_base", 20.0), meta.get("t_train", 30.0)
+            z["schedule"] = ((ts > tb) & (ts <= tb + tt)).tolist()
     if meta.get("experiment") == "tmaze_choice":
         data["odor_sources"] = [{"pos": [-40, 0, 0], "label": "A (наказание)"},
                                 {"pos": [40, 0, 0], "label": "B"}]

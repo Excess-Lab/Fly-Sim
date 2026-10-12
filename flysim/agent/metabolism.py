@@ -55,7 +55,7 @@ class Metabolism:
         """ASSUMPTION(A72): patulin is toxic to Drosophila (reduces survival and fecundity);
         load decays by detoxification with t1/2 ~ 12 h; health = 1 / (1 + 5*load)."""
         self.toxin += dose
-        self.toxin *= np.exp(-dt_s / (12 * 3600 / np.log(2)))
+        self.toxin *= np.exp(-dt_s * np.log(2) / (12 * 3600))
         self.health = 1.0 / (1.0 + 5.0 * self.toxin)
 
     @classmethod

@@ -198,23 +198,42 @@ class Simulation:
         w = self.world
         self.status = f"перемотка {hours:.0f} ч: яблоко бродит и плесневеет, яйца развиваются"
         pop = w.population
+        w.apple.age(hours)  # fruit state for the interval, then the life cycle on it
         ready = pop.fast_forward(w.clock_h, hours, w.apple, w.flies)
-        w.apple.age(hours)
+        sugar_frac = w.apple.nutrition()["sugar_frac"]
+        patulin = w.apple.nutrition()["patulin"]
         for f in w.flies:
-            f.meta.temp_c, f.meta.o2_pct = w.ambient_c, w.o2_pct
-            for _ in range(int(hours)):
-                f.meta.step(3600.0)
-                f.meta.ingest_toxin(0.0, 3600.0)
+            m = f.meta
+            m.temp_c, m.o2_pct = w.ambient_c, w.o2_pct
+            # ASSUMPTION(A75): between sessions flies live on the fruit and take a meal whenever
+            # hungry and edible sugar is left (meals every few hours, Ro et al. 2014). Energy is
+            # integrated hour by hour; >48 h at zero energy = death by starvation (lab flies die
+            # after ~2-3 days without food at 25 C).
+            whole, rest = int(hours), hours - int(hours)
+            for dt_h in [1.0] * whole + ([rest] if rest > 0 else []):
+                if m.hunger > 0.3 and sugar_frac > 0.05 and w.o2_pct > 2:
+                    m.crop_ul = m.p.meal_volume_ul
+                    m.crop_sugar_ul = m.p.meal_volume_ul * sugar_frac
+                    m.ingest_toxin(patulin, 0.0)
+                m.step(3600.0 * dt_h)
+                m.ingest_toxin(0.0, 3600.0 * dt_h)
+                f.starving_h = (getattr(f, "starving_h", 0.0) + dt_h) if m.energy <= 0.0 else 0.0
+            f.brain.forget(hours * 3600)  # passive forgetting (A23)
             f.age_d += hours / 24
             f.copulating = False
         w.clock_h += hours
         for f in list(w.flies):
+            cause = None
             if f.age_d > pop.lifespan_d * (0.3 + 0.7 * f.meta.health):  # A72
+                cause = "старость" + (" (ускорена токсином плесени)" if f.meta.health < 0.9 else "")
+            elif getattr(f, "starving_h", 0.0) > 48:
+                cause = "голод"
+            if cause:
                 w.flies.remove(f)
-                self.log._ev(w, f, 0.0, "death", f"умерла в возрасте {f.age_d:.1f} дн")
+                self.log._ev(w, f, 0.0, "death", f"погибла: {cause}, возраст {f.age_d:.1f} дн")
         for b in ready:
             b.alive = False
-            pop.born += 1
+            pop.born += 1  # eclosed adults (with or without a simulated brain)
             if len(w.flies) >= pop.max_adults:
                 continue
             sex = "female" if pop.rng.random() < 0.5 else "male"

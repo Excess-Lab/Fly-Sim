@@ -107,7 +107,7 @@ class Fly:
         r_gust = self.gust.rates(taste, contact)
         temp = world.temperature_at(self.body.pos)
         r_th = self.thermo.rates(temp)
-        r_vis = self.vision.rates(self.body.pos + np.array([0, 0, 0.8]), self.body.yaw,
+        r_vis = self.vision.rates(self.body.eye(world.apple.center), self.body.yaw,
                                   world.visual_spheres(self))
         r_hear = self.hearing.rates(world.song_at(self))
         r_int = self.intero.rates(self.meta.energy)
@@ -147,7 +147,7 @@ class Fly:
             world.population.lay(world.clock_h, self.cfg.name, self.mate, self.body.pos)
             self.last_egg_t = self.t
             self.events.append((round(self.t, 3), "laid egg"))
-        self.meta.temp_c = world.ambient_c
+        self.meta.temp_c = getattr(self, "last_temp", world.ambient_c)  # local (zone) temperature
         self.meta.o2_pct = world.o2_pct
         on_food = self.body.proboscis and self.body.surface == "apple"
         nut = world.apple.nutrition()

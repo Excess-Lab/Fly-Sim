@@ -64,16 +64,22 @@ class Population:
                 lam = self.eggs_per_h * hours * min(1.0, 0.3 + apple.s.yeast)
                 k = self.rng.poisson(lam)
                 if k:
-                    self.lay(now_h, f.cfg.name, getattr(f, "mate", "?"), apple.center, k)
+                    top = apple.center + np.array([0, 0, apple.p.radius_mm])  # on the fruit surface
+                    self.lay(now_h, f.cfg.name, getattr(f, "mate", "?"), top, k)
                     f.events.append((round(f.t, 3), f"laid {k} eggs off-line ({hours:.0f} h)"))
-        surv_h = self.survival_per_day(apple) ** (hours / 24)
+        # mortality applies to the time each individual spends as larva/pupa within the interval
+        surv_d = self.survival_per_day(apple)
         ready = []
         for b in self.brood:
             if not b.alive:
                 continue
-            if b.stage(now_h + hours) in ("larva", "pupa") and self.rng.random() > surv_h:
+            a0 = (now_h - b.laid_h) / 24
+            a1 = (now_h + hours - b.laid_h) / 24
+            lo, hi = EGG_D, EGG_D + LARVA_D + PUPA_D
+            exposed = max(0.0, min(a1, hi) - max(a0, lo))
+            if exposed > 0 and self.rng.random() > surv_d ** exposed:
                 b.alive = False
-            elif b.stage(now_h + hours) == "adult":
+            elif a1 >= hi:
                 ready.append(b)
         return ready
 

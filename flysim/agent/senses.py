@@ -23,14 +23,24 @@ class OlfactionParams:
     # (ORN EC50s typically 10^-4..10^-2; Hallem & Carlson 2006; Si et al. 2019)
     ec50: float = 0.1
     hill: float = 1.0
+    # per-odorant EC50 (same units as concentrations). CO2: 1 unit = 1 %; ab1C/Gr21a neurons
+    # respond from ~0.1-0.2 % with half-maximal responses around ~1 % (Suh et al. 2004;
+    # Faucher et al. 2006). geosmin: Or56a is extremely sensitive (Stensmyr et al. 2012).
+    ec50_by_odor: dict = None
+
+    def __post_init__(self):
+        if self.ec50_by_odor is None:
+            self.ec50_by_odor = {"CO2": 1.0, "geosmin": 0.01}
 
 
 class Olfaction:
     def __init__(self, ann: pd.DataFrame, p: OlfactionParams | None = None):
         self.p = p or OlfactionParams()
-        resp = pd.read_csv(ODOR / "orn_responses.csv", index_col=0)
+        # spontaneous-rate-subtracted DoOR responses: negative = inhibition below spontaneous
+        resp = pd.read_csv(ODOR / "orn_responses_sfr_subtracted.csv", index_col=0)
         resp = resp.drop(columns=[c for c in ["door_name", "InChIKey"] if c in resp.columns])
-        self.resp = resp.fillna(0.0).clip(lower=0.0)
+        resp = resp.drop(index=[i for i in resp.index if str(i).upper().startswith("SFR")])
+        self.resp = resp.fillna(0.0)
         t = ann.type.to_numpy()
         is_orn = pd.Series(t).str.match(r"^ORN_").to_numpy()
         self.idx = np.flatnonzero(is_orn)
@@ -55,19 +65,25 @@ class Olfaction:
             if k.startswith("ORN_"):
                 self.gain[self.glom == k[4:]] = v
 
-    def rates(self, conc_left: dict, conc_right: dict) -> np.ndarray:
+    def _drive(self, conc: dict) -> np.ndarray:
         p = self.p
-        out = np.full(len(self.idx), p.sfr_hz)
-        for side, conc in (("left", conc_left), ("right", conc_right)):
-            m = self.side == side if (self.side == side).any() else np.ones(len(self.idx), bool)
-            drive = np.zeros(len(self.idx))
-            for od, c in conc.items():
-                if c <= 0 or od not in self.odorants:
-                    continue
-                h = c ** p.hill / (c ** p.hill + p.ec50 ** p.hill)
-                drive += self.M[self.odorants.index(od)] * h
-            out[m] += p.rmax_hz * np.minimum(drive[m], 1.5)
-        return out * self.gain
+        drive = np.zeros(len(self.idx))
+        for od, c in conc.items():
+            if c <= 0 or od not in self.odorants:
+                continue
+            e = p.ec50_by_odor.get(od, p.ec50)
+            h = c ** p.hill / (c ** p.hill + e ** p.hill)
+            drive += self.M[self.odorants.index(od)] * h
+        return drive
+
+    def rates(self, conc_left: dict, conc_right: dict) -> np.ndarray:
+        """ORN rate = spontaneous + gain * evoked; inhibitory odours can lower it to 0.
+        Neurons without an annotated antenna side get the mean of both antennae."""
+        p = self.p
+        dl, dr = self._drive(conc_left), self._drive(conc_right)
+        drive = np.where(self.side == "left", dl, np.where(self.side == "right", dr, 0.5 * (dl + dr)))
+        evoked = p.rmax_hz * np.clip(drive, -1.0, 1.5) * self.gain  # hunger scales evoked part only
+        return np.maximum(0.0, p.sfr_hz + evoked)
 
 
 # ------------------------------------------------------------------------------------------
@@ -163,19 +179,45 @@ def _photoreceptor_columns(con: Connectome, ann: pd.DataFrame, sex: str):
                                ).to_pandas().set_index("bodyId").reindex(con.ids)
         col_xy[:, 0] = a.assignedOlHex1.to_numpy(float)
         col_xy[:, 1] = a.assignedOlHex2.to_numpy(float)
+        # axial hex coordinates (60 deg axes) -> cartesian
+        h1, h2 = col_xy[:, 0].copy(), col_xy[:, 1].copy()
+        col_xy[:, 0] = h1 + h2 / 2.0
+        col_xy[:, 1] = h2 * np.sqrt(3) / 2.0
     # each photoreceptor inherits the column of its strongest column-assigned partner
     xy = np.full((len(pr), 2), np.nan)
+    partner = np.full(len(pr), -1)
     for k, i in enumerate(pr):
         if not np.isnan(col_xy[i, 0]):
             xy[k] = col_xy[i]
+            partner[k] = i
             continue
         lo, hi = con.indptr[i], con.indptr[i + 1]
         tgt, w = con.post[lo:hi], np.abs(con.syn[lo:hi])
         ok = ~np.isnan(col_xy[tgt, 0])
         if ok.any():
-            xy[k] = col_xy[tgt[ok][np.argmax(w[ok])]]
+            partner[k] = tgt[ok][np.argmax(w[ok])]
+            xy[k] = col_xy[partner[k]]
     keep = ~np.isnan(xy[:, 0])
-    return pr[keep], xy[keep], ann.side.to_numpy()[pr[keep]]
+    pr, xy, partner = pr[keep], xy[keep], partner[keep]
+    side = ann.side.to_numpy()[pr]
+    # orient each eye from anatomy: elevation axis = the column axis best correlated with the
+    # dorso-ventral position of the partner neurons (y grows ventrally in both datasets)
+    py = ann.y.to_numpy()[partner]
+    pz = ann.z.to_numpy()[partner]
+    for s_ in ("left", "right"):
+        m = (side == s_) & ~np.isnan(py)
+        if m.sum() < 10:
+            continue
+        cx = abs(np.corrcoef(xy[m, 0], py[m])[0, 1])
+        cy = abs(np.corrcoef(xy[m, 1], py[m])[0, 1])
+        if cx > cy:  # swap so that column 1 is the elevation axis
+            xy[side == s_] = xy[side == s_][:, ::-1]
+        if np.corrcoef(xy[m, 1], py[m])[0, 1] > 0:  # make elevation increase dorsally
+            xy[side == s_, 1] *= -1
+        mz = m & ~np.isnan(pz)
+        if mz.sum() > 10 and np.corrcoef(xy[mz, 0], pz[mz])[0, 1] < 0:  # azimuth: front->back
+            xy[side == s_, 0] *= -1
+    return pr, xy, side
 
 
 class Vision:

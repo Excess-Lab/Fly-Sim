@@ -11,9 +11,8 @@ from flysim.brain.lif import Brain
 from flysim.data import annotations as A
 
 sex = sys.argv[1] if len(sys.argv) > 1 else "female"
-con, ann = A.load(sex)
-brain = Brain(con)
-print('dropped synapses', brain.apply_point_neuron_corrections(ann))
+from flysim.brain.factory import make_brain  # noqa: E402
+brain, ann = make_brain(sex)
 groups = {
     "heat TRN_VP2": "^TRN_VP2",
     "cold TRN_VP3": "^TRN_VP3",

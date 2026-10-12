@@ -20,6 +20,8 @@ CONDITIONS = {
     "full": dict(plasticity=True, us_punish_shortcut=True),
     "no_plasticity": dict(plasticity=False, us_punish_shortcut=True),
     "no_us_shortcut": dict(plasticity=True, us_punish_shortcut=False),
+    "no_reward_shortcut": dict(plasticity=True, us_reward_shortcut=False),
+    "reflex_only": dict(plasticity=False, us_punish_shortcut=False, us_reward_shortcut=False),
 }
 
 
@@ -81,6 +83,7 @@ def place_avoidance(cond="full", seed=0, t_base=20.0, t_train=30.0, t_test=30.0)
         "mbon_w_min_end": fr[-1]["mbon_w_min"],
     }
     m["avoidance_index"] = m["frac_zone_baseline"] - m["frac_zone_test"]
+    m.update(t_base=t_base, t_train=t_train)
     rec.save(ROOT / f"place_avoidance_{cond}_s{seed}", meta=m)
     return m
 
@@ -98,20 +101,24 @@ def tmaze_choice(cond="full", seed=0, retention_h=(0.0,), t_train=30.0, t_test=3
     A = {"ethyl acetate": 1.0}
     B = {"isoamyl acetate": 1.0}
     rec = Recorder(w)
+    f.calibrate(w, 0.5)
     t = 0.0
-    # training: 3 blocks of [A + shocks (A24), rest, B alone]
-    for _ in range(3):
-        w.extra_odor_sources = [((0, 0, 0), A, 50.0)]
-        w.shocks["F"] = 0.0
-        for k in range(int(t_train / 3 / 2 / 0.01)):
-            # 1.25 s shock pulses every 5 s (Tully & Quinn: 12 shocks / 60 s)
-            w.shocks["F"] = 60.0 if (k * 0.01) % 5.0 < 1.25 else 0.0
-            w.step(0.01)
-            t += 0.01
-        w.shocks["F"] = 0.0
-        w.extra_odor_sources = [((0, 0, 0), B, 50.0)]
-        rec.run(t_train / 3 / 2, log_every=0, t0=t)
-        t += t_train / 3 / 2
+    # Tully & Quinn 1985: odour A with 12 x 1.25 s shocks over 60 s (one every 5 s), 45 s rest,
+    # odour B 60 s without shocks. Durations scaled by t_train / 60.
+    scale = t_train / 60.0
+    w.extra_odor_sources = [((0, 0, 0), A, 50.0)]
+    for k in range(int(60 * scale / 0.01)):
+        w.shocks["F"] = 60.0 if ((k * 0.01) / scale) % 5.0 < 1.25 else 0.0
+        w.step(0.01)
+        t += 0.01
+    w.shocks["F"] = 0.0
+    f.pop_counts()  # unrecorded training spikes must not leak into the next frame
+    w.extra_odor_sources = []
+    rec.run(45 * scale, log_every=0, t0=t)
+    t += 45 * scale
+    w.extra_odor_sources = [((0, 0, 0), B, 50.0)]
+    rec.run(60 * scale, log_every=0, t0=t)
+    t += 60 * scale
     results = {"experiment": "tmaze_choice", "condition": cond, "seed": seed,
                "mbon_w_min_after_training": float(f.brain.kc_mbon_strength().min()) if f.brain.pl_on else 1.0,
                "tests": []}
@@ -121,6 +128,7 @@ def tmaze_choice(cond="full", seed=0, retention_h=(0.0,), t_train=30.0, t_test=3
         elapsed_h = h
         f.body.pos = np.array([0.0, 0.0, 0.0])
         f.body.yaw = np.pi / 2
+        f.body.h = f.body.heading()
         f.body.mode, f.body.surface = "walk", "floor"
         w.extra_odor_sources = [((-40, 0, 0), A, 8.0), ((40, 0, 0), B, 8.0)]
         f.calibrate(w, 0.5)
@@ -164,8 +172,10 @@ def food_search_after_aversion(cond="full", seed=0, t_naive=40.0, t_train=20.0, 
         w.step(0.01)
         t += 0.01
     w.shocks["F"] = 0.0
+    f.pop_counts()
     f.body.pos = np.array([-50.0, 0, 0])
     f.body.mode, f.body.surface, f.body.yaw = "walk", "floor", 0.0
+    f.body.h = f.body.heading()
     t0 = t
     rec.run(t_test, log_every=10, t0=t)
     fr2 = [x for x in rec.frames["F"] if x["t"] > t0]

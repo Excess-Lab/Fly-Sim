@@ -82,30 +82,39 @@ PLAST_EVERY = 10  # steps (1 ms)
 
 
 @njit(cache=True, nogil=True)
-def _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, c):
-    """Dopamine-gated KC->MBON plasticity, one update per PLAST_EVERY steps.
-    c = [dt_s, decay_x, decay_da, eta_dep, eta_rec, 1/tau_forget]
-      dw/dt = -eta_dep * x_KC * DA_m * w          coincidence -> depression (Hige 2015, Cohn 2015)
-              + eta_rec * x_KC * (w0 - w)          KC activity alone -> recovery (Cohn 2015, Berry 2018)
-              - (w - w0) / tau_forget              passive forgetting
-    ASSUMPTION(A20-A23): rule form and constants, see ASSUMPTIONS.md.
+def _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, c, kc_new, da_new):
+    """Dopamine-gated, timing-dependent KC->MBON plasticity; one update per PLAST_EVERY steps.
+    c = [dt_s, decay_x, decay_da, eta_dep, eta_rec, 1/tau_forget, eta_pot, w_max_ratio]
+      forward pairing  (KC trace, then DA arrives)  -> depression        (Hige 2015; Handler 2019)
+      backward pairing (DA trace, then KC spikes)   -> potentiation      (Handler 2019: relief)
+      KC activity without DA                        -> recovery to w0    (Cohn 2015; Berry 2018)
+      passive forgetting to w0 with tau_forget
+    Each term is linear in w, so the update is an exact exponential step (always stable).
+    ASSUMPTION(A20-A23): see ASSUMPTIONS.md.
     """
     dt = c[0]
     for p in range(pe_edge.shape[0]):
         e = pe_edge[p]
-        xk = x_tr[pe_pre[p]]
+        k_i = pe_pre[p]
+        m = pe_m[p]
+        x_before = x_tr[k_i] - kc_new[k_i]      # KC activity that preceded this window
+        da_before = da_tr[m] - da_new[m]        # dopamine that preceded this window
         w0 = pe_w0[p]
-        # linear in w over one update -> exact exponential step (unconditionally stable)
-        a = c[3] * xk * da_tr[pe_m[p]]
-        b = c[4] * xk + c[5]
-        k = a + b
+        wmax = c[7] * w0
+        a = c[3] * x_before * da_new[m] / dt
+        bp = c[6] * da_before * kc_new[k_i] / dt
+        r = c[4] * kc_new[k_i] / dt + c[5]
+        k = a + bp + r
         if k > 0.0:
-            w_eq = b * w0 / k
+            w_eq = (bp * wmax + r * w0) / k
             w[e] = w_eq + (w[e] - w_eq) * np.exp(-k * dt)
-    for k in range(kc_idx.shape[0]):
-        x_tr[kc_idx[k]] *= c[1]
+    for q in range(kc_idx.shape[0]):
+        i = kc_idx[q]
+        x_tr[i] *= c[1]
+        kc_new[i] = 0.0
     for i in range(da_tr.shape[0]):
         da_tr[i] *= c[2]
+        da_new[i] = 0.0
 
 
 @njit(cache=True, nogil=True)
@@ -113,7 +122,8 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
           decay_v, decay_g, coef_a, v_0, v_th, v_rst,
           stim_idx, stim_p, stim_w, kick_step, kick_idx, rng_state,
           counts, rec_mask, rec_out,
-          pl_on, x_tr, da_tr, dan_ptr, dan_m, dan_a, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, pl_c):
+          pl_on, x_tr, da_tr, dan_ptr, dan_m, dan_a, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, pl_c,
+          kc_new, da_new):
     n = v.shape[0]
     D = ring.shape[0]
     csize = (n + N_CHUNKS - 1) // N_CHUNKS
@@ -150,10 +160,12 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
                     ring[out_slot, post[e]] += w[e]
                 if pl_on:
                     x_tr[i] += 1.0
+                    kc_new[i] += 1.0
                     for j in range(dan_ptr[i], dan_ptr[i + 1]):
                         da_tr[dan_m[j]] += dan_a[j]
+                        da_new[dan_m[j]] += dan_a[j]
         if pl_on and (step + 1) % PLAST_EVERY == 0:
-            _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, pl_c)
+            _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, pl_c, kc_new, da_new)
 
 
 @dataclass
@@ -220,10 +232,13 @@ class Brain:
         self.dan_m, self.dan_a = z32, zf
         self.pe_edge, self.pe_pre, self.pe_m, self.pe_w0 = z64, z32, z32, zf
         self.kc_idx = z64
-        self.pl_c = np.zeros(6, np.float64)
+        self.pl_c = np.zeros(8, np.float64)
+        self.kc_new = np.zeros(1, np.float32)
+        self.da_new = zf.copy()
 
     def enable_plasticity(self, kc, mbon, dan, tau_elig_s=1.0, tau_da_s=0.5,
-                          eta_dep=2.0, eta_rec=0.02, tau_forget_s=3 * 3600.0):
+                          eta_dep=2.0, eta_rec=0.02, tau_forget_s=3 * 3600.0,
+                          eta_pot=0.5, w_max_ratio=2.0):
         """Make KC->MBON synapses plastic, gated by dopamine.
 
         Which DAN modulates which MBON is taken from the connectome itself: a DAN spike adds
@@ -273,7 +288,9 @@ class Brain:
         self.kc_idx = kc
         dt_s = PLAST_EVERY * self.p.dt * 1e-3
         self.pl_c = np.array([dt_s, np.exp(-dt_s / tau_elig_s), np.exp(-dt_s / tau_da_s),
-                              eta_dep, eta_rec, 1.0 / tau_forget_s])
+                              eta_dep, eta_rec, 1.0 / tau_forget_s, eta_pot, w_max_ratio])
+        self.kc_new = np.zeros(n, np.float32)
+        self.da_new = np.zeros(len(mbon), np.float32)
         self.pl_on = True
         self.mbon_idx = mbon
 
@@ -330,7 +347,8 @@ class Brain:
               stim_idx, stim_p, p.w_syn * p.f_poi, ks, ki,
               int(self._rng.integers(2**31 - 1)), counts, rec_mask, rec_out,
               self.pl_on, self.x_tr, self.da_tr, self.dan_ptr, self.dan_m, self.dan_a,
-              self.pe_edge, self.pe_pre, self.pe_m, self.pe_w0, self.kc_idx, self.pl_c)
+              self.pe_edge, self.pe_pre, self.pe_m, self.pe_w0, self.kc_idx, self.pl_c,
+              self.kc_new, self.da_new)
         self.t_step += n_steps
         return counts, rec_out
 
