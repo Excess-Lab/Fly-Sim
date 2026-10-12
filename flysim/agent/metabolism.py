@@ -42,6 +42,7 @@ class Metabolism:
     p: MetabolismParams
     energy: float = 1.0       # 0 = starved, 1 = fed
     crop_ul: float = 0.0      # food in crop
+    crop_sugar_ul: float = 0.0  # sugar-equivalent volume in crop
 
     @classmethod
     def starved(cls, hours: float, p: MetabolismParams | None = None):
@@ -58,16 +59,15 @@ class Metabolism:
         """ingest_sugar_frac: sugar content of food at the proboscis, 0..1 relative to a sweet meal."""
         p = self.p
         if ingesting and self.crop_ul < p.meal_volume_ul:
-            self.crop_ul += p.ingest_nl_per_s * 1e-3 * dt_s
-            self._sugar_in_crop = getattr(self, "_sugar_in_crop", 0.0) + \
-                p.ingest_nl_per_s * 1e-3 * dt_s * ingest_sugar_frac
-        drained = self.crop_ul * dt_s / p.crop_empty_tau_s
-        sugar = getattr(self, "_sugar_in_crop", 0.0)
-        sugar_drained = sugar * dt_s / p.crop_empty_tau_s if self.crop_ul > 0 else 0.0
-        self.crop_ul -= drained
-        self._sugar_in_crop = sugar - sugar_drained
-        self.energy = min(1.0, self.energy + sugar_drained * p.energy_per_ul_sugar
-                          - dt_s / (p.starvation_time_to_empty_h * 3600))
+            dv = p.ingest_nl_per_s * 1e-3 * dt_s
+            self.crop_ul += dv
+            self.crop_sugar_ul += dv * ingest_sugar_frac
+        frac = dt_s / p.crop_empty_tau_s
+        sugar_absorbed = self.crop_sugar_ul * frac
+        self.crop_ul -= self.crop_ul * frac
+        self.crop_sugar_ul -= sugar_absorbed
+        self.energy = min(1.0, max(0.0, self.energy + sugar_absorbed * p.energy_per_ul_sugar
+                                   - dt_s / (p.starvation_time_to_empty_h * 3600)))
 
     def sensory_gains(self) -> dict:
         h = self.hunger
