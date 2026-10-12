@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fly-Sim Viewer</title>
+<style>
+:root {
+  --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e2e0da;
+  --accent: #c2410c; --apple: #7aa33a; --male: #2563eb; --female: #db2777; --brainbg: #101014;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121214; --panel: #1b1b1e; --ink: #ececef; --muted: #9a9aa2; --line: #2c2c31;
+    --accent: #fb923c; --male: #60a5fa; --female: #f472b6; --brainbg: #08080a;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121214; --panel: #1b1b1e; --ink: #ececef; --muted: #9a9aa2; --line: #2c2c31;
+  --accent: #fb923c; --male: #60a5fa; --female: #f472b6; --brainbg: #08080a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+header { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 16px;
+  align-items: baseline; flex-wrap: wrap; }
+header h1 { font-size: 17px; margin: 0; }
+header .sub { color: var(--muted); font-size: 13px; }
+main { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px; padding: 12px 16px; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.card h2 { font-size: 13px; font-weight: 600; margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--line);
+  display: flex; justify-content: space-between; gap: 8px; }
+.card h2 span { color: var(--muted); font-weight: 400; }
+#scene { width: 100%; aspect-ratio: 4 / 3; display: block; cursor: grab; }
+.brains { display: grid; gap: 12px; }
+.brain canvas { width: 100%; aspect-ratio: 16 / 10; display: block; background: var(--brainbg); cursor: grab; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; padding: 8px 12px; }
+.stat { font-size: 12px; color: var(--muted); }
+.stat b { display: block; color: var(--ink); font-size: 14px; font-variant-numeric: tabular-nums; }
+.controls { display: flex; gap: 10px; align-items: center; padding: 10px 16px; flex-wrap: wrap; }
+.controls input[type=range] { flex: 1; min-width: 160px; }
+button, select { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 12px; font: inherit; cursor: pointer; }
+#time { font-variant-numeric: tabular-nums; min-width: 72px; }
+.log { max-height: 180px; overflow: auto; padding: 8px 12px; font: 12px ui-monospace, Menlo, monospace; color: var(--muted); }
+.legend { display: flex; gap: 12px; padding: 6px 12px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+pre.meta { margin: 0; padding: 8px 12px; font-size: 11.5px; overflow: auto; max-height: 220px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fly-Sim</h1>
+  <div class="sub" id="subtitle"></div>
+</header>
+<div class="controls">
+  <button id="play">▶ Пуск</button>
+  <input type="range" id="slider" min="0" value="0">
+  <span id="time">0.0 с</span>
+  <select id="speed"><option value="0.5">×0.5</option><option value="1" selected>×1</option><option value="2">×2</option><option value="5">×5</option></select>
+</div>
+<main>
+  <section class="card">
+    <h2>Арена <span id="appleinfo"></span></h2>
+    <canvas id="scene"></canvas>
+    <div class="legend" id="legend"></div>
+    <div class="log" id="log"></div>
+  </section>
+  <section class="brains" id="brains"></section>
+</main>
+<main style="padding-top:0">
+  <section class="card"><h2>Параметры прогона</h2><pre class="meta" id="meta"></pre></section>
+</main>
+<script>
+const DATA = __DATA__;
+function b64(s, T) { const bin = atob(s); const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); }
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const flies = DATA.flies;
+const names = Object.keys(flies);
+const nFrames = flies[names[0]].frames.length;
+const dtFrame = DATA.frame_dt;
+document.getElementById('subtitle').textContent = DATA.title;
+document.getElementById('appleinfo').textContent = DATA.apple.summary;
+document.getElementById('meta').textContent = JSON.stringify(DATA.meta, null, 1);
+const slider = document.getElementById('slider'); slider.max = nFrames - 1;
+
+// decode brains
+for (const n of names) {
+  const b = flies[n].brain;
+  b.xyz = b64(b.xyz, Float32Array); b.region = b64(b.region, Uint8Array);
+  b.fstart = b64(b.fstart, Uint32Array); b.idx = b64(b.idx, Uint32Array); b.val = b64(b.val, Uint8Array);
+}
+const color = n => flies[n].sex === 'male' ? css('--male') : css('--female');
+
+// ---------------- arena (simple 3D projection, orbit by drag) ----------------
+const sc = document.getElementById('scene'); const sx = sc.getContext('2d');
+let az = -0.6, el = 0.75, zoom = 1;
+function fit(c) { const r = c.getBoundingClientRect(); const d = devicePixelRatio || 1;
+  if (c.width !== Math.round(r.width * d)) { c.width = Math.round(r.width * d); c.height = Math.round(r.height * d); } }
+function proj(p, W, H, scale) {
+  const ca = Math.cos(az), sa = Math.sin(az), ce = Math.cos(el), se = Math.sin(el);
+  const x = p[0] * ca - p[1] * sa, y = p[0] * sa + p[1] * ca;
+  const yy = y * ce - p[2] * se, zz = y * se + p[2] * ce;
+  return [W / 2 + x * scale, H / 2 + yy * scale * 0.95, zz];
+}
+function drag(canvas, onMove) { let d = null;
+  canvas.addEventListener('pointerdown', e => { d = [e.clientX, e.clientY]; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointermove', e => { if (!d) return; onMove(e.clientX - d[0], e.clientY - d[1]); d = [e.clientX, e.clientY]; draw(); });
+  canvas.addEventListener('pointerup', () => d = null);
+  canvas.addEventListener('wheel', e => { e.preventDefault(); onMove(0, 0, e.deltaY); draw(); }, { passive: false }); }
+drag(sc, (dx, dy, wh) => { az += dx * 0.01; el = Math.min(1.5, Math.max(0.1, el + dy * 0.01)); if (wh) zoom *= wh > 0 ? 0.9 : 1.1; });
+
+function drawArena(fi) {
+  fit(sc); const W = sc.width, H = sc.height; sx.clearRect(0, 0, W, H);
+  const A = DATA.arena, scale = Math.min(W, H) / (2.6 * A) * zoom;
+  sx.strokeStyle = css('--line'); sx.lineWidth = 1;
+  // floor grid
+  for (let g = -A; g <= A + 1e-6; g += A / 4) {
+    let a = proj([g, -A, 0], W, H, scale), b = proj([g, A, 0], W, H, scale);
+    sx.beginPath(); sx.moveTo(a[0], a[1]); sx.lineTo(b[0], b[1]); sx.stroke();
+    a = proj([-A, g, 0], W, H, scale); b = proj([A, g, 0], W, H, scale);
+    sx.beginPath(); sx.moveTo(a[0], a[1]); sx.lineTo(b[0], b[1]); sx.stroke();
+  }
+  // zones
+  for (const z of DATA.zones) {
+    const active = z.schedule ? z.schedule[fi] : z.active;
+    sx.fillStyle = z.bitter ? 'rgba(120,80,200,0.18)' : (active ? 'rgba(239,68,68,0.28)' : 'rgba(239,68,68,0.08)');
+    sx.beginPath();
+    for (let k = 0; k <= 48; k++) { const a = k / 48 * 2 * Math.PI;
+      const p = proj([z.center[0] + z.radius * Math.cos(a), z.center[1] + z.radius * Math.sin(a), 0], W, H, scale);
+      k ? sx.lineTo(p[0], p[1]) : sx.moveTo(p[0], p[1]); }
+    sx.fill();
+  }
+  // odour sources (T-maze etc.)
+  for (const s of (DATA.odor_sources || [])) {
+    const p = proj(s.pos, W, H, scale); sx.fillStyle = 'rgba(234,179,8,0.85)';
+    sx.beginPath(); sx.arc(p[0], p[1], 5, 0, 7); sx.fill(); sx.fillStyle = css('--muted'); sx.fillText(s.label, p[0] + 7, p[1] - 6);
+  }
+  // apple
+  const ac = DATA.apple.center, ar = DATA.apple.radius;
+  if (Math.abs(ac[0]) < 3 * A) {
+    const p = proj(ac, W, H, scale);
+    const g = sx.createRadialGradient(p[0] - ar * scale * 0.3, p[1] - ar * scale * 0.3, ar * scale * 0.1, p[0], p[1], ar * scale);
+    g.addColorStop(0, DATA.apple.color_light); g.addColorStop(1, DATA.apple.color);
+    sx.fillStyle = g; sx.beginPath(); sx.arc(p[0], p[1], ar * scale, 0, 7); sx.fill();
+  }
+  // flies: trail + body
+  for (const n of names) {
+    const fr = flies[n].frames; sx.strokeStyle = color(n); sx.globalAlpha = 0.35; sx.beginPath();
+    for (let k = Math.max(0, fi - 200); k <= fi; k++) { const p = proj(fr[k].pos, W, H, scale);
+      k === Math.max(0, fi - 200) ? sx.moveTo(p[0], p[1]) : sx.lineTo(p[0], p[1]); }
+    sx.stroke(); sx.globalAlpha = 1;
+    const f = fr[fi], p = proj(f.pos, W, H, scale);
+    const h = [f.pos[0] + 3 * Math.cos(f.yaw), f.pos[1] + 3 * Math.sin(f.yaw), f.pos[2]];
+    const q = proj(h, W, H, scale);
+    const r = Math.max(4, 1.25 * scale);
+    if (f.mode === 'fly') { const s = proj([f.pos[0], f.pos[1], 0], W, H, scale);
+      sx.fillStyle = 'rgba(0,0,0,0.15)'; sx.beginPath(); sx.arc(s[0], s[1], r, 0, 7); sx.fill(); }
+    sx.fillStyle = color(n); sx.beginPath(); sx.arc(p[0], p[1], r, 0, 7); sx.fill();
+    sx.strokeStyle = color(n); sx.lineWidth = 2; sx.beginPath(); sx.moveTo(p[0], p[1]); sx.lineTo(q[0], q[1]); sx.stroke();
+    if (f.wing > 0.3) { sx.strokeStyle = color(n); sx.beginPath(); sx.arc(p[0], p[1], r * 2, 0, 7); sx.stroke(); }
+    if (f.proboscis) { sx.fillStyle = css('--accent'); sx.beginPath(); sx.arc(q[0], q[1], 3, 0, 7); sx.fill(); }
+    sx.fillStyle = css('--ink'); sx.font = `${12 * (devicePixelRatio || 1)}px sans-serif`;
+    sx.fillText(n, p[0] + r + 3, p[1] - r);
+  }
+}
+
+// ---------------- brains ----------------
+const brainsEl = document.getElementById('brains');
+const REGION_COLORS = DATA.region_colors;
+const brainView = {};
+for (const n of names) {
+  const card = document.createElement('section'); card.className = 'card brain';
+  card.innerHTML = `<h2>Мозг: ${n} <span>${flies[n].brain.n.toLocaleString('ru')} нейронов · ${flies[n].sex === 'male' ? 'Male CNS (самец)' : 'FlyWire (самка)'}</span></h2>
+    <canvas></canvas><div class="stats"></div>`;
+  brainsEl.appendChild(card);
+  const cv = card.querySelector('canvas');
+  brainView[n] = { cv, ctx: cv.getContext('2d'), stats: card.querySelector('.stats'), az: 0, el: 0.15, zoom: 1, act: new Float32Array(flies[n].brain.n) };
+  drag(cv, (dx, dy, wh) => { const v = brainView[n]; v.az += dx * 0.01; v.el = Math.max(-1.4, Math.min(1.4, v.el + dy * 0.01)); if (wh) v.zoom *= wh > 0 ? 0.9 : 1.1; });
+}
+const legend = document.getElementById('legend');
+legend.innerHTML = names.map(n => `<span><span class="dot" style="background:${color(n)}"></span>${n}</span>`).join('') +
+  Object.entries(DATA.region_names).map(([k, v]) => `<span><span class="dot" style="background:${REGION_COLORS[k]}"></span>${v}</span>`).join('');
+
+function drawBrain(n, fi) {
+  const b = flies[n].brain, v = brainView[n]; fit(v.cv);
+  const W = v.cv.width, H = v.cv.height, c = v.ctx;
+  // activity with decay over the last frames
+  v.act.fill(0);
+  for (let k = Math.max(0, fi - 3); k <= fi; k++) {
+    const w = 1 / (1 + (fi - k)); const s = b.fstart[k], e = b.fstart[k + 1];
+    for (let j = s; j < e; j++) v.act[b.idx[j]] += b.val[j] * w;
+  }
+  c.fillStyle = css('--brainbg'); c.fillRect(0, 0, W, H);
+  const ca = Math.cos(v.az), sa = Math.sin(v.az), ce = Math.cos(v.el), se = Math.sin(v.el);
+  const S = Math.min(W, H) * 0.48 * v.zoom;
+  // dim background cloud (subsampled)
+  c.fillStyle = 'rgba(160,160,180,0.10)';
+  const step = Math.max(1, Math.floor(b.n / 25000));
+  for (let i = 0; i < b.n; i += step) {
+    const x = b.xyz[3 * i], y = b.xyz[3 * i + 1], z = b.xyz[3 * i + 2];
+    if (isNaN(x)) continue;
+    const X = x * ca - z * sa, Z = x * sa + z * ca, Y = y * ce - Z * se;
+    c.fillRect(W / 2 + X * S, H / 2 + Y * S, 1.2, 1.2);
+  }
+  // active neurons
+  let nAct = 0;
+  for (let i = 0; i < b.n; i++) {
+    const a = v.act[i]; if (a <= 0) continue; nAct++;
+    const x = b.xyz[3 * i], y = b.xyz[3 * i + 1], z = b.xyz[3 * i + 2]; if (isNaN(x)) continue;
+    const X = x * ca - z * sa, Z = x * sa + z * ca, Y = y * ce - Z * se;
+    c.fillStyle = REGION_COLORS[b.region[i]];
+    c.globalAlpha = Math.min(1, 0.25 + a / 6);
+    const r = Math.min(3.2, 1 + a / 4) * (devicePixelRatio || 1) * 0.8;
+    c.fillRect(W / 2 + X * S - r / 2, H / 2 + Y * S - r / 2, r, r);
+  }
+  c.globalAlpha = 1;
+  const f = flies[n].frames[fi];
+  const stat = (k, val) => `<div class="stat">${k}<b>${val}</b></div>`;
+  const modes = { walk: 'ходьба', fly: 'полёт' }, surf = { floor: 'пол', apple: 'яблоко' };
+  v.stats.innerHTML = [
+    stat('Активных нейронов', nAct.toLocaleString('ru')),
+    stat('Режим', `${modes[f.mode]} · ${surf[f.surface]}`),
+    stat('Голод', f.hunger.toFixed(2)), stat('Энергия', f.energy.toFixed(2)),
+    stat('Зоб, мкл', f.crop_ul.toFixed(3)), stat('Хоботок (MN9)', `${f.proboscis ? 'ест' : '—'} · ${f.rates.per.toFixed(0)} Гц`),
+    stat('Поворот DNa02', `${f.rates.turn_DNa02.toFixed(0)} Гц`), stat('Вперёд DNp09', `${f.rates.fwd.toFixed(0)} Гц`),
+    stat('Взлёт GF', `${f.rates.gf.toFixed(0)} Гц`), stat('Песня pIP10', `${f.rates.song.toFixed(0)} Гц`),
+    stat('P1 (возбуждение)', `${f.rates.arousal_P1.toFixed(0)} Гц`), stat('Готовность DNp37', `${f.rates.receptive.toFixed(0)} Гц`),
+    stat('Память KC→MBON min', f.mbon_w_min == null ? '—' : f.mbon_w_min.toFixed(3)), stat('Температура', `${f.temp.toFixed(1)} °C`),
+  ].join('');
+}
+
+const logEl = document.getElementById('log');
+function drawLog(t) {
+  const items = [];
+  for (const n of names) for (const [te, e] of flies[n].events) if (te <= t) items.push([te, n, e]);
+  items.sort((a, b) => b[0] - a[0]);
+  logEl.innerHTML = items.slice(0, 60).map(([te, n, e]) => `${te.toFixed(2)} с  <b style="color:${color(n)}">${n}</b>  ${e}`).join('<br>') || 'событий пока нет';
+}
+
+let fi = 0, playing = false, last = 0, acc = 0;
+function draw() { drawArena(fi); for (const n of names) drawBrain(n, fi);
+  const t = flies[names[0]].frames[fi].t; document.getElementById('time').textContent = t.toFixed(2) + ' с'; drawLog(t); }
+slider.addEventListener('input', () => { fi = +slider.value; draw(); });
+document.getElementById('play').addEventListener('click', e => { playing = !playing; e.target.textContent = playing ? '⏸ Пауза' : '▶ Пуск'; last = performance.now(); if (playing) requestAnimationFrame(tick); });
+function tick(now) { if (!playing) return; acc += (now - last) / 1000 * +document.getElementById('speed').value; last = now;
+  const adv = Math.floor(acc / dtFrame); if (adv > 0) { acc -= adv * dtFrame; fi = Math.min(nFrames - 1, fi + adv); slider.value = fi; draw(); }
+  if (fi >= nFrames - 1) { playing = false; document.getElementById('play').textContent = '▶ Пуск'; } else requestAnimationFrame(tick); }
+addEventListener('resize', draw);
+draw();
+</script>
+</body>
+</html>
