@@ -15,11 +15,6 @@ class Zone:
     active: bool = True
 
 
-def _default_ethics():
-    from flysim.sim.ethics import EthicsMonitor
-    return EthicsMonitor()
-
-
 @dataclass
 class World:
     apple: Apple
@@ -37,7 +32,6 @@ class World:
     copulation_s: float = 60.0  # ASSUMPTION(A62): real ~20 min, shortened inside a session
     arena_phys: object = None   # NMFArena when flies use NeuroMechFly bodies
     atm: object = None          # flysim.world.atmosphere.Atmosphere (container air)
-    ethics: object = field(default_factory=_default_ethics)  # always on
 
     def sync_air(self):
         if self.atm is not None:
@@ -196,8 +190,6 @@ class World:
                 if f.cfg.body == "nmf":
                     f.body.sync()
         self.interactions(dt)
-        if self.ethics is not None:
-            self.ethics.step(self, dt)
         if self.atm is not None:
             self.atm.step(dt / 3600, self.apple, len(self.flies), self.ambient_c)
             self.sync_air()
