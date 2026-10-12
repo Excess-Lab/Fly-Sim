@@ -7,6 +7,8 @@ services:
     volumes:
       # connectome data (~0.7 GB, downloaded on first start) and caches stay on your disk
       - ./data:/app/data
+      # every run (history, events, logs) is kept on your disk
+      - ./results:/app/results
     environment:
       - NUMBA_NUM_THREADS=6
     restart: unless-stopped
