@@ -65,6 +65,10 @@ class NMFArena:
         self.floor_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "ground_plane")
         self.drive = {n: np.zeros(2) for n in self.flies}
         self.kinematic = {}   # name -> (pos, yaw) while flying
+        self.chains = {}      # name -> MotorChain (motor-neuron -> muscle -> joint offsets)
+        self.dof_index = {n: {f"{n}/{d.name}": i for i, d in
+                              enumerate(f.get_actuated_jointdofs_order("position"))}
+                          for n, f in self.flies.items()}
         self._index()
 
     def _fly_fly_pairs(self):
@@ -150,7 +154,17 @@ class NMFArena:
                     self.set_kinematic(name, *self.kinematic[name])
                     continue
                 obs = HybridControllerObservation.from_sim(self.sim, name)
-                apply_locomotion_action(self.sim, name, self.ctrl[name].step(self.drive[name], obs))
+                act = self.ctrl[name].step(self.drive[name], obs)
+                ch = self.chains.get(name)
+                if ch is not None and ch.offsets:
+                    ja = np.array(act.joint_angles, dtype=float)
+                    idx = self.dof_index[name]
+                    for dof, dth in ch.offsets.items():
+                        i = idx.get(dof)
+                        if i is not None:
+                            ja[i] += dth
+                    act = LocomotionAction(joint_angles=ja, adhesion_onoff=act.adhesion_onoff)
+                apply_locomotion_action(self.sim, name, act)
             self.sim.step()
 
 

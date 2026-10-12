@@ -70,12 +70,19 @@ class Fly:
                 self.leg_noci[leg] = np.flatnonzero(m)
         self.noci_idx = np.concatenate(list(self.leg_noci.values())).astype(np.int64) if self.leg_noci \
             else np.zeros(0, np.int64)
+        # full motor chain through the VNC (male only; A81-A84)
+        self.chain = None
+        if ann.super_class.str.contains("vnc").any():
+            from flysim.agent.motor_chain import MotorChain
+            self.chain = MotorChain(self)
+        self.prop_idx = self.chain.prop_idx if self.chain is not None else np.zeros(0, np.int64)
         self.stim_idx = np.concatenate([
             self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
-            self.intero.idx, self.ppk23, self.ppl1, self.pam, self.noci_idx]).astype(np.int64)
+            self.intero.idx, self.ppk23, self.ppl1, self.pam, self.noci_idx,
+            self.prop_idx]).astype(np.int64)
         self.brain.set_poisson_targets(np.concatenate([
             self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
-            self.intero.idx, self.ppk23, self.noci_idx]))
+            self.intero.idx, self.ppk23, self.noci_idx, self.prop_idx]))
         self.motor = MotorReadout(ann)
         from flysim.agent.physics import BodyTemperature
         self.thermal = BodyTemperature(25.0)
@@ -160,7 +167,14 @@ class Fly:
             reward = 30.0 * world.apple.nutrition()["sugar_frac"] * gains["sugar"]
         r_pam = np.full(len(self.pam), reward)
         self.last_temp = temp
-        return np.concatenate([r_olf, r_gust, r_th, r_vis, r_hear, r_int, r_ppk, r_ppl1, r_pam, r_noci])
+        if self.chain is not None:
+            arena = getattr(self.body, "arena", None)
+            r_prop = self.chain.proprio_rates(arena) if arena is not None and self.body.mode == "walk" \
+                else np.full(len(self.prop_idx), 5.0)
+        else:
+            r_prop = np.zeros(0)
+        return np.concatenate([r_olf, r_gust, r_th, r_vis, r_hear, r_int, r_ppk, r_ppl1, r_pam,
+                               r_noci, r_prop])
 
     def step(self, world, dt: float):
         rates = self.sense(world)
@@ -169,6 +183,11 @@ class Fly:
         self.counts_acc += counts
         self.motor.update(counts, dt * 1000)
         self.cmd = self.motor.commands()
+        if self.chain is not None:
+            self.chain.update(counts, dt * 1000)
+            # giant fibre -> tergotrochanter (jump) motor neurons -> take-off jump (male VNC)
+            if self.chain.jump_rate > 50.0:
+                self.cmd["takeoff"] = True
         was = (self.body.mode, self.body.surface, self.body.proboscis)
         if self.copulating and self.t > self.copulation_until:
             self.copulating = False
