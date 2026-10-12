@@ -64,6 +64,7 @@ class World:
             old = f.body
             f.body = NMFBody(self.arena_phys, f.cfg.name, old.rng)
             f.body.lunge_t = getattr(old, "lunge_t", 0.0)
+            self.arena_phys.lesions[f.cfg.name] = f.schema
             ch = getattr(f, "chain", None)
             if ch is not None and ch.available:
                 ch.calibrate_signs(self.arena_phys)

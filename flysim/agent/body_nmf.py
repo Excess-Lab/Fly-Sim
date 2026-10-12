@@ -66,6 +66,7 @@ class NMFArena:
         self.drive = {n: np.zeros(2) for n in self.flies}
         self.kinematic = {}   # name -> (pos, yaw) while flying
         self.chains = {}      # name -> MotorChain (motor-neuron -> muscle -> joint offsets)
+        self.lesions = {}     # name -> BodySchema (paralyzed / amputated legs)
         self.dof_index = {n: {f"{n}/{d.name}": i for i, d in
                               enumerate(f.get_actuated_jointdofs_order("position"))}
                           for n, f in self.flies.items()}
@@ -113,6 +114,27 @@ class NMFArena:
                 root = m.body_parentid[root]
             jid = m.body_jntadr[root]
             self.free_adr[name] = (m.jnt_qposadr[jid], m.jnt_dofadr[jid])
+
+    def _apply_leg_lesions(self, name, act, sch):
+        ja = np.array(act.joint_angles, dtype=float)
+        adh = np.array(act.adhesion_onoff, dtype=bool)
+        rest = self.pps.default_pose_by_dof_order(self.flies[name].get_actuated_jointdofs_order("position"))
+        for k, leg in enumerate(LEGS):
+            st = sch.legs[leg]
+            if st == "intact":
+                continue
+            idx = [i for d, i in self.dof_index[name].items() if f"/{leg}_" in d or f"-{leg}_" in d]
+            if st == "paralyzed":
+                ja[idx] = rest[idx]
+            else:  # amputated: fold the leg up against the body, away from the substrate
+                for d, i in self.dof_index[name].items():
+                    if (f"/{leg}_" in d or f"-{leg}_" in d):
+                        if "tibia-pitch" in d:
+                            ja[i] = 2.5 if rest[i] > 0 else -2.5
+                        elif "trochanterfemur-pitch" in d:
+                            ja[i] = rest[i] - 1.0 if rest[i] < 0 else rest[i] + 1.0
+            adh[k] = False
+        return LocomotionAction(joint_angles=ja, adhesion_onoff=adh)
 
     # ---------------------------------------------------------------------------------------
     def pose(self, name):
@@ -164,6 +186,9 @@ class NMFArena:
                         if i is not None:
                             ja[i] += dth
                     act = LocomotionAction(joint_angles=ja, adhesion_onoff=act.adhesion_onoff)
+                sch = self.lesions.get(name)
+                if sch is not None and any(v != "intact" for v in sch.legs.values()):
+                    act = self._apply_leg_lesions(name, act, sch)
                 apply_locomotion_action(self.sim, name, act)
             self.sim.step()
 
@@ -260,6 +285,11 @@ class NMFBody:
             yaw += 3 * p.w_turn * cmd["turn"] * dt
             if spontaneous:
                 yaw += p.spont_turn_sd * self.rng.standard_normal() * np.sqrt(dt)
+        sch = self.arena.lesions.get(self.name)
+        if sch is not None:   # damaged wings: less force; asymmetric damage yaws the fly
+            dl, dr = sch.wing_damage["left"], sch.wing_damage["right"]
+            amp *= float(np.sqrt(max(0.0, 1.0 - 0.5 * (dl + dr))))
+            yaw += 2.0 * (dr - dl) * dt
         pos = self.aero.step(pos, yaw, amp, 0.0, dt)
         for k in range(2):
             if abs(pos[k]) > arena:   # wall: inelastic bounce

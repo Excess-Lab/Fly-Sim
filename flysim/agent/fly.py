@@ -27,6 +27,8 @@ class FlyConfig:
     spontaneous: bool = True
     seed: int = 0
     body: str = "nmf"   # always NeuroMechFly physics; "simple" kept only for unit tests
+    injuries: dict = None  # experimenter-set lesions (body_schema.BodySchema.from_config)
+    connectome: str = ""   # "" = default for the sex; "female_banc" = female full CNS (BANC)
 
 
 class Fly:
@@ -34,9 +36,16 @@ class Fly:
 
     def __init__(self, cfg: FlyConfig, pos, yaw):
         self.cfg = cfg
-        con, ann = load(cfg.sex)
+        ds = cfg.connectome or cfg.sex
+        con, ann = load(ds)
         self.ann = ann
-        self.brain, _ = make_brain(cfg.sex, seed=cfg.seed)
+        self.dataset = ds
+        self.dataset_name = {"female": "FlyWire v783 (brain only)",
+                             "female_banc": "BANC 888 (brain + VNC, experimental)",
+                             "male": "Janelia Male CNS v1.0 (brain + VNC)"}[ds]
+        self.brain, _ = make_brain(ds, seed=cfg.seed)
+        from flysim.agent.body_schema import BodySchema
+        self.schema = BodySchema.from_config(cfg.injuries)
         t = pd.Series(ann.type.to_numpy())
         self.kc = np.flatnonzero(t.str.match(r"^KC").to_numpy())
         self.mbon = np.flatnonzero(t.str.match(r"^MBON").to_numpy())
@@ -58,15 +67,16 @@ class Fly:
         # nociception (noxious heat >~40 C; TrpA1/painless md neurons) has no annotated class;
         # the 'unknown_sensory' neurons entering through each leg nerve are used as candidates.
         self.leg_noci = {}
-        if cfg.sex == "male":
-            import pyarrow.feather as feather
-            from flysim.data.malecns import ANN
-            en = feather.read_table(ANN, columns=["bodyId", "entryNerve"]).to_pandas() \
-                .set_index("bodyId").reindex(con.ids).entryNerve.fillna("").to_numpy()
-            unk = (ann.cell_class == "unknown_sensory").to_numpy()
+        if ann.super_class.str.contains("vnc").any():
             from flysim.agent.body_nmf import LEG_NERVE, LEGS
+            cc = ann.cell_class.to_numpy()
+            md = cc == "multidendritic_neuron"
+            cand = md if md.any() else (cc == "unknown_sensory")   # A80: male candidates
+            en = ann["entry_nerve"].fillna("").to_numpy() if "entry_nerve" in ann.columns else \
+                np.array([""] * len(ann))
             for leg in LEGS:
-                m = unk & (en == LEG_NERVE[leg[1]]) & (ann.side.to_numpy() == ("left" if leg[0] == "l" else "right"))
+                m = cand & (en == LEG_NERVE[leg[1]]) & \
+                    (ann.side.to_numpy() == ("left" if leg[0] == "l" else "right"))
                 self.leg_noci[leg] = np.flatnonzero(m)
         self.noci_idx = np.concatenate(list(self.leg_noci.values())).astype(np.int64) if self.leg_noci \
             else np.zeros(0, np.int64)
@@ -167,12 +177,34 @@ class Fly:
             reward = 30.0 * world.apple.nutrition()["sugar_frac"] * gains["sugar"]
         r_pam = np.full(len(self.pam), reward)
         self.last_temp = temp
+        # lesions (body schema): lost or silenced sensors (A85)
+        sch = self.schema
+        side_olf, side_th = self.olf.side, self.ann.side.to_numpy()
+        for sd in ("left", "right"):
+            if sch.antenna[sd] != "intact":
+                r_olf[side_olf == sd] = 0.0
+                r_hear[side_th[self.hearing.idx] == sd] = 0.0
+                r_th[side_th[self.thermo.idx] == sd] = 0.0
+            if sch.eye[sd] != "open":
+                r_vis[side_th[self.vision.idx] == sd] = 5.0
+        if len(self.noci_idx):
+            off = 0
+            for leg, ids in self.leg_noci.items():
+                if sch.legs[leg] == "amputated":
+                    r_noci[off:off + len(ids)] = 0.0
+                off += len(ids)
         if self.chain is not None:
             arena = getattr(self.body, "arena", None)
             r_prop = self.chain.proprio_rates(arena) if arena is not None and self.body.mode == "walk" \
                 else np.full(len(self.prop_idx), 5.0)
         else:
             r_prop = np.zeros(0)
+        if self.chain is not None and len(r_prop):
+            off = 0
+            for (leg, kind), ids in self.chain.prop.items():
+                if sch.legs[leg] == "amputated":
+                    r_prop[off:off + len(ids)] = 0.0
+                off += len(ids)
         return np.concatenate([r_olf, r_gust, r_th, r_vis, r_hear, r_int, r_ppk, r_ppl1, r_pam,
                                r_noci, r_prop])
 
@@ -188,6 +220,7 @@ class Fly:
             # giant fibre -> tergotrochanter (jump) motor neurons -> take-off jump (male VNC)
             if self.chain.jump_rate > 50.0:
                 self.cmd["takeoff"] = True
+        self.schema.update_function(getattr(self.body, "contacts", {}) or {}, self.chain)
         was = (self.body.mode, self.body.surface, self.body.proboscis)
         if self.copulating and self.t > self.copulation_until:
             self.copulating = False
