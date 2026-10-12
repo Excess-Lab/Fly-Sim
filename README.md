@@ -14,7 +14,7 @@
 <img alt="FlyWire" src="https://img.shields.io/badge/мозг%20самки-FlyWire%20v783-DB2777">
 <img alt="Male CNS" src="https://img.shields.io/badge/ЦНС%20самца-Janelia%20v1.0-2563EB">
 <img alt="Docker" src="https://img.shields.io/badge/Docker-готов-2496ED?logo=docker&logoColor=white">
-<img alt="Release" src="https://img.shields.io/badge/релиз-0.1.0-C2410C">
+<img alt="Release" src="https://img.shields.io/badge/релиз-0.2.0-C2410C">
 </p>
 
 <p align="center"><b>Русский</b> · <a href="README.en.md">English</a></p>
@@ -251,4 +251,5 @@ scripts           загрузка данных, эксперименты, от�
 
 | Версия | Что внутри |
 |---|---|
+| 0.2.0 | Методология (режимы механизмов, манифест, протоколы, статистика), полная моторная цепочка, самка BANC, схема тела и травмы, несколько яблок, деревья, сезоны |
 | 0.1.0 | Мозги по коннектомам (оба пола), реалистичные тела, физика, гниющее яблоко, атмосфера, обучение, размножение, сайт, логи, Docker |

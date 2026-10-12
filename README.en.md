@@ -14,7 +14,7 @@ Runs on a laptop, one container, configured in the browser.
 <img alt="FlyWire" src="https://img.shields.io/badge/female%20brain-FlyWire%20v783-DB2777">
 <img alt="Male CNS" src="https://img.shields.io/badge/male%20CNS-Janelia%20v1.0-2563EB">
 <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white">
-<img alt="Release" src="https://img.shields.io/badge/release-0.1.0-C2410C">
+<img alt="Release" src="https://img.shields.io/badge/release-0.2.0-C2410C">
 </p>
 
 <p align="center"><a href="README.md">Русский</a> · <b>English</b></p>
@@ -244,4 +244,5 @@ scripts           data download, experiments, report, validation
 
 | Version | Content |
 |---|---|
+| 0.2.0 | Methodology (mechanism modes, manifest, protocols, statistics), full motor chain, BANC female, body schema and lesions, several apples, trees, seasons |
 | 0.1.0 | Connectome brains (both sexes), realistic bodies, physics, rotting apple, atmosphere, learning, reproduction, web app, logs, Docker |
