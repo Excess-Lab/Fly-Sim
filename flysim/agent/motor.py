@@ -30,6 +30,11 @@ GROUPS = {
     "song": r"^pIP10$",
     "receptive": r"^DNp37$",
     "ovi": r"^oviDN",          # oviposition descending neurons (Wang et al. 2020)
+    # not motor: logged as neural correlates of valence / learning
+    "ppl1": r"^PPL1",
+    "pam": r"^PAM",
+    "mbon": r"^MBON",
+    "kc": r"^KC",
 }
 
 

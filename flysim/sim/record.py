@@ -5,6 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
+from flysim.sim.eventlog import EventLog
+
 KEY_RATES = ["fwd", "back", "turn_DNa02", "gf", "takeoff", "flight_power", "land", "per",
              "song", "receptive", "arousal_P1"]
 
@@ -15,8 +17,10 @@ class Recorder:
         self.frame_dt = frame_dt
         self.frames = {f.cfg.name: [] for f in world.flies}
         self.spikes = {f.cfg.name: [] for f in world.flies}  # per frame: (idx uint32, cnt uint16)
+        self.log = EventLog()
 
     def snap(self, t):
+        self.log.frame(self.world, t, {f.cfg.name: f.counts_acc for f in self.world.flies})
         for f in self.world.flies:
             b = f.body
             mb = f.brain.kc_mbon_strength() if f.brain.pl_on else np.ones(1)
@@ -67,6 +71,7 @@ class Recorder:
         }
         (out_dir / "run.json").write_text(json.dumps(info, default=float, indent=1))
         (out_dir / "frames.json").write_text(json.dumps(self.frames))
+        self.log.save(out_dir)
         for name, fr in self.spikes.items():
             lens = np.array([len(i) for i, _ in fr], np.int64)
             np.savez_compressed(out_dir / f"spikes_{name}.npz", lens=lens,
