@@ -29,6 +29,7 @@ GROUPS = {
     "per": r"^(MN9|CB0701)$",
     "song": r"^pIP10$",
     "receptive": r"^DNp37$",
+    "ovi": r"^oviDN",          # oviposition descending neurons (Wang et al. 2020)
 }
 
 
@@ -90,4 +91,5 @@ class MotorReadout:
             "song": sat(r["song"], 40.0),
             "receptive": r["receptive"] > 10.0,
             "arousal": sat(r["arousal_P1"], 30.0),
+            "oviposit": r["ovi"] > 15.0,
         }

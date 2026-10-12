@@ -25,6 +25,9 @@ class World:
     odor_scale: float = 1.0
     extra_odor_sources: list = field(default_factory=list)  # (xyz, {odorant: strength}, radius)
     shocks: dict = field(default_factory=dict)              # fly name -> PPL1 drive Hz
+    clock_h: float = 0.0                                    # world time since start, hours
+    population: object = None                               # flysim.world.population.Population
+    copulation_s: float = 60.0  # ASSUMPTION(A62): real ~20 min, shortened inside a session
 
     # ---- fields ---------------------------------------------------------------------------
     def odor_at(self, x, me) -> dict:
@@ -118,8 +121,13 @@ class World:
                     m.events.append((round(m.t, 3), f"lunge->{o.cfg.name}"))
                     o.events.append((round(o.t, 3), f"lunged_by->{m.cfg.name}"))
                 if o.cfg.sex == "female" and dist < 3.0 and m.cmd["song"] > 0.3 and \
-                        o.cmd["receptive"] and not getattr(m, "copulating", False):
+                        o.cmd["receptive"] and not m.copulating and not o.copulating:
                     m.copulating = o.copulating = True
+                    m.copulation_until = m.t + self.copulation_s
+                    o.copulation_until = o.t + self.copulation_s
+                    m.body.pos = o.body.pos - 1.5 * o.body.heading()
+                    m.body.yaw = o.body.yaw
+                    o.set_mated(m.cfg.name)
                     m.events.append((round(m.t, 3), f"copulation->{o.cfg.name}"))
                     o.events.append((round(o.t, 3), f"copulation<-{m.cfg.name}"))
             m.body.lunge_t -= dt
@@ -128,3 +136,4 @@ class World:
         for f in self.flies:
             f.step(self, dt)
         self.interactions(dt)
+        self.clock_h += dt / 3600

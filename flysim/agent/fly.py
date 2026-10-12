@@ -66,6 +66,22 @@ class Fly:
         self.cmd = self.motor.commands()
         self.events = []
         self.t = 0.0
+        self.mated = False
+        self.mate = None
+        self.copulating = False
+        self.copulation_until = -1.0
+        self.last_egg_t = -1e9
+        self.age_d = 3.0
+        self.pc1 = np.flatnonzero(t.str.match(r"^pC1").to_numpy())
+
+    def set_mated(self, mate_name: str):
+        """ASSUMPTION(A60): male sex peptide silences SPSN -> SAG input to pC1 in the female
+        (Feng et al. 2014; Wang et al. 2020). Modelled as reduced synaptic gain onto pC1 (x0.3);
+        reduced receptivity and increased egg-laying must then emerge from the connectome."""
+        self.mated = True
+        self.mate = mate_name
+        if self.cfg.sex == "female":
+            self.brain.gain[self.pc1] = 0.3
 
     # ------------------------------------------------------------------
     def antenna_positions(self):
@@ -116,8 +132,20 @@ class Fly:
         self.motor.update(counts, dt * 1000)
         self.cmd = self.motor.commands()
         was = (self.body.mode, self.body.surface, self.body.proboscis)
-        self.body.step(self.cmd, dt, world.apple.center, world.apple.p.radius_mm, world.arena,
-                       spontaneous=self.cfg.spontaneous)
+        if self.copulating and self.t > self.copulation_until:
+            self.copulating = False
+            self.events.append((round(self.t, 3), "copulation ended"))
+        if not self.copulating:
+            self.body.step(self.cmd, dt, world.apple.center, world.apple.p.radius_mm, world.arena,
+                           spontaneous=self.cfg.spontaneous)
+        # ASSUMPTION(A61): a mated female standing on the fruit lays an egg when oviDNs fire,
+        # at most one egg per 30 s
+        if (self.cfg.sex == "female" and self.mated and self.cmd.get("oviposit")
+                and self.body.surface == "apple" and self.t - self.last_egg_t > 30.0
+                and getattr(world, "population", None) is not None):
+            world.population.lay(world.clock_h, self.cfg.name, self.mate, self.body.pos)
+            self.last_egg_t = self.t
+            self.events.append((round(self.t, 3), "laid egg"))
         on_food = self.body.proboscis and self.body.surface == "apple"
         nut = world.apple.nutrition()
         self.meta.step(dt, nut["sugar_frac"] + 0.3 * nut["yeast_frac"], ingesting=on_food)

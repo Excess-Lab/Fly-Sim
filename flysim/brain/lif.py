@@ -44,7 +44,7 @@ class LIFParams:
 N_CHUNKS = 64
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, nogil=True)
 def _update_chunks(n, slot, v, g, rfc_left, frozen, ring, gain, decay_v, decay_g, coef_a,
                    v_0, v_th, spk_buf, spk_n):
     """Fused, parallel: integrate -> threshold -> deliver due synaptic input, per neuron.
@@ -81,7 +81,7 @@ def _update_chunks(n, slot, v, g, rfc_left, frozen, ring, gain, decay_v, decay_g
 PLAST_EVERY = 10  # steps (1 ms)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, c):
     """Dopamine-gated KC->MBON plasticity, one update per PLAST_EVERY steps.
     c = [dt_s, decay_x, decay_da, eta_dep, eta_rec, 1/tau_forget]
@@ -108,7 +108,7 @@ def _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, c):
         da_tr[i] *= c[2]
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
           decay_v, decay_g, coef_a, v_0, v_th, v_rst,
           stim_idx, stim_p, stim_w, kick_step, kick_idx, rng_state,
