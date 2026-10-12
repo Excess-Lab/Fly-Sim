@@ -81,12 +81,26 @@ def malecns_annotations(con: Connectome) -> pd.DataFrame:
         "cell_class": a["class"].fillna("").to_numpy(),
         "cell_sub_class": a.subclass.fillna("").to_numpy(),
         "side": side.to_numpy(),
-        "nt": a.consensus_nt.fillna("").to_numpy(),
+        "nt": a.consensus_nt.where(~a.consensus_nt.isin([None, "unclear"]), a.predicted_nt
+                                   ).fillna("").to_numpy(),
         "synonyms": a.synonyms.fillna("").to_numpy(),
         "receptor": a.receptorType.fillna("").to_numpy(),
         "flywire_type": a.flywireType.fillna("").to_numpy(),
         "x": xyz[:, 0], "y": xyz[:, 1], "z": xyz[:, 2],
     })
+
+
+def _male_nt(male: pd.DataFrame) -> np.ndarray:
+    """Male CNS transmitter: FlyWire resolved transmitter of the matched cell type (known_nt or
+    type consensus) where a match exists, else male type-level majority of consensus_nt."""
+    fcon = flywire.build()
+    fann = flywire_annotations(fcon)
+    fw_type_nt = fann[fann.type != ""].groupby("type").nt.agg(lambda x: x.value_counts().index[0])
+    base = resolve_nt(male.type.to_numpy(), male.nt.replace("unclear", "").to_numpy(),
+                      np.array([""] * len(male)))
+    ft = male.flywire_type.str.split(",").str[0].str.strip()
+    matched = ft.map(fw_type_nt)
+    return np.where(matched.notna(), matched, base).astype(object)
 
 
 def load(sex: str):
@@ -96,7 +110,14 @@ def load(sex: str):
         return con, flywire_annotations(con)
     if sex == "male":
         con = malecns.build()
-        return con, malecns_annotations(con)
+        ann = malecns_annotations(con)
+        cache = flywire.PROCESSED / "malecns_nt_resolved.npy"
+        if cache.exists():
+            ann["nt"] = np.load(cache, allow_pickle=True)
+        else:
+            ann["nt"] = _male_nt(ann)
+            np.save(cache, ann.nt.to_numpy().astype(object), allow_pickle=True)
+        return con, ann
     raise ValueError(sex)
 
 

@@ -14,4 +14,4 @@ print("active after stim off:", np.count_nonzero(c))
 a = ann.assign(r=c / 0.3)
 act = a[a.r > 0]
 print(act.groupby("cell_class").size().sort_values(ascending=False).head(12))
-print(act.groupby("type").r.agg(["size", "mean"]).sort_values("size", ascending=False).head(25))
+g = act.groupby(["super_class", "type"]).r.agg(["size", "mean"]); print(g.sort_values("size", ascending=False).head(30)); print(act.groupby("super_class").size()); print(act.groupby("nt").size())
