@@ -1,144 +1,117 @@
 <h1 align="center">Fly-Sim</h1>
 
 <p align="center">
-<b>Оцифрованные дрозофилы, гниющее яблоко и воздух вокруг — поведение управляется симуляцией коннектомов, а каждое приближение задокументировано.</b><br>
-Спайковые модели целого мозга <i>Drosophila</i> в реалистичных телах, с физикой, метаболизмом, обучением и размножением.<br>
-Работает на ноутбуке, один контейнер, настройка в браузере.
+<b>Whole-connectome fruit flies in physical bodies, living next to rotting apples.</b><br>
+Spiking models of complete <i>Drosophila</i> nervous systems drive NeuroMechFly bodies in MuJoCo; the world has fermenting and moulding fruit, air chemistry, seasons, seeds and trees.<br>
+Configured, run and inspected in the browser. Every approximation is documented.
 </p>
 
 <p align="center">
 <img alt="Python" src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white">
 <img alt="Numba" src="https://img.shields.io/badge/Numba-JIT-00A3E0">
 <img alt="MuJoCo" src="https://img.shields.io/badge/MuJoCo-3.x-6E4AFF">
-<img alt="NeuroMechFly" src="https://img.shields.io/badge/тело-NeuroMechFly%20v2-2E7D32">
-<img alt="FlyWire" src="https://img.shields.io/badge/мозг%20самки-FlyWire%20v783-DB2777">
-<img alt="Male CNS" src="https://img.shields.io/badge/ЦНС%20самца-Janelia%20v1.0-2563EB">
-<img alt="Docker" src="https://img.shields.io/badge/Docker-готов-2496ED?logo=docker&logoColor=white">
-<img alt="Release" src="https://img.shields.io/badge/релиз-0.2.0-C2410C">
+<img alt="NeuroMechFly" src="https://img.shields.io/badge/body-NeuroMechFly%20v2-2E7D32">
+<img alt="Connectomes" src="https://img.shields.io/badge/connectomes-FlyWire%20%7C%20BANC%20%7C%20Male%20CNS-DB2777">
+<img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white">
+<img alt="License" src="https://img.shields.io/badge/license-MIT-lightgrey">
+<img alt="Release" src="https://img.shields.io/badge/release-0.3.0-C2410C">
 </p>
 
-<p align="center"><b>Русский</b> · <a href="README.en.md">English</a></p>
+<p align="center"><b>English</b> · <a href="README.ru.md">Русский</a></p>
 
 ---
 
-## Оглавление
+## Contents
 
-- [Что это](#что-это)
-- [Что моделируется](#что-моделируется)
-  - [Нервные системы](#нервные-системы) · [Органы чувств](#органы-чувств) · [Тело и физика](#тело-и-физика) · [Мир](#мир) · [Обучение и размножение](#обучение-и-размножение)
-- [Быстрый старт](#быстрый-старт)
-- [Как пользоваться сайтом](#как-пользоваться-сайтом)
-- [Логи](#логи)
-- [Эксперименты](#эксперименты)
-- [Научная честность](#научная-честность)
-- [Архитектура](#архитектура)
-- [Производительность](#производительность)
-- [Данные и источники](#данные-и-источники)
-- [Структура репозитория](#структура-репозитория)
-- [Релизы](#релизы)
+- [What it is](#what-it-is)
+- [What is simulated](#what-is-simulated)
+- [Quick start](#quick-start)
+- [Using the web app](#using-the-web-app)
+- [Experiments and statistics](#experiments-and-statistics)
+- [Logs and data](#logs-and-data)
+- [Scientific status](#scientific-status)
+- [Architecture](#architecture)
+- [Performance](#performance)
+- [Data, references, license](#data-references-license)
+- [Repository layout](#repository-layout)
+- [Releases](#releases)
 
-## Что это
+## What it is
 
-Fly-Sim помещает одну или несколько *Drosophila melanogaster* с полными, независимо
-симулируемыми нервными системами рядом с яблоком, которое бродит, превращается в уксус и
-плесневеет, — внутри контейнера, воздух в котором меняется, потому что яблоко и мухи дышат.
-Поведение ничем не скриптуется: мухи видят, чуют, пробуют, слышат и чувствуют только через
-сенсорные нейроны, которые есть в коннектоме, и двигаются только через нисходящие нейроны с
-экспериментально известной функцией. Голод, еда, избегание, ухаживание, агрессия, обучение и
-откладка яиц должны возникнуть из проводки.
+Fly-Sim simulates *Drosophila melanogaster* whose behaviour is driven by spiking simulations of
+their complete reconstructed nervous systems. Flies sense the world only through sensory neurons
+that exist in the connectome and act only through descending and motor neurons with known
+functions. Hunger, feeding, avoidance, learning, mating, egg laying, ageing and death are meant to
+arise from the wiring, the body and the environment — not from scripts.
 
-Каждое отклонение модели от измеренных данных записано с источником в
-[ASSUMPTIONS.md](ASSUMPTIONS.md); что пока не работает — в [KNOWN_ISSUES.md](KNOWN_ISSUES.md);
-границы модели — в [MODEL_SCOPE.md](MODEL_SCOPE.md); что проверено — в
-[SCIENTIFIC_VALIDATION.md](SCIENTIFIC_VALIDATION.md); как ставить опыты — в
-[EXPERIMENT_DESIGN.md](EXPERIMENT_DESIGN.md).
+Where data are missing, the model uses documented approximations, each listed with its source in
+[ASSUMPTIONS.md](ASSUMPTIONS.md). Every result is labelled with a **mechanism mode**:
+`connectome_only`, `connectome_plus_approximations` or `experimental_shortcuts`.
+See [MODEL_SCOPE.md](MODEL_SCOPE.md) for what is and is not modelled,
+[SCIENTIFIC_VALIDATION.md](SCIENTIFIC_VALIDATION.md) for what has been checked, and
+[KNOWN_ISSUES.md](KNOWN_ISSUES.md) for open problems.
 
-Каждый результат помечен режимом: `connectome_only` (только реконструированные пути),
-`connectome_plus_approximations` (плюс задокументированные приближения) или
-`experimental_shortcuts` (есть обходы по физиологии). Режим, версия модели, ID эксперимента и
-полнота нервной системы каждой мухи сохраняются в `manifest.json`.
+## What is simulated
 
-## Что моделируется
+### Nervous systems
 
-### Нервные системы
-
-| | Самка (эталон) | Самка (полная ЦНС, экспериментально) | Самец |
+| | Female (reference) | Female, full CNS | Male, full CNS |
 |---|---|---|---|
-| Коннектом | FlyWire v783 (Dorkenwald et al. 2024) | BANC 888 (Bates et al. 2025) | Janelia Male CNS v1.0 |
-| Что входит | мозг + зрительные доли | мозг + зрительные доли + брюшная нервная цепочка (VNC) | **полная ЦНС:** мозг + зрительные доли + брюшная нервная цепочка (VNC) |
-| Нейроны / связи | 138 639 / 15,1 млн | 181 627 / 13,6 млн | 164 587 / 25,6 млн |
-| Статус | проверена на опубликованных результатах | пока не эквивалентна FlyWire | проверена после калибровки |
-| Модель нейрона | LIF (Shiu et al. 2024), событийный симулятор на Numba | то же, вес синапса откалиброван между датасетами (×1/1,78 по 7220 общим типам) |
+| Connectome | FlyWire v783 | BANC 888 | Janelia Male CNS v1.0 |
+| Contains | brain + optic lobes | brain + optic lobes + ventral nerve cord | brain + optic lobes + ventral nerve cord |
+| Neurons / connections | 138,639 / 15.1 M | 181,627 / 13.6 M | 164,587 / 25.6 M |
+| Calibration | reference (Shiu et al. 2024) | per cell type to FlyWire / Male CNS | ×1/1.78, matched cell types |
 
-Симулятор повторяет эталон Brian2 **спайк в спайк** (9054 из 9054 спайков за 1 с) и в ~8 раз
-быстрее. Артефакты точечной модели, загонявшие опубликованную модель в самоподдерживающийся
-режим «горит всё», убраны задокументированными биологическими поправками: медиаторы по известной
-идентичности и типу клеток, нет быстрых моноаминовых синапсов, нет запуска спайков через
-аксо-аксонные синапсы на сенсорные нейроны и клетки Кеньона.
+- **Neuron model:** leaky integrate-and-fire (Shiu et al. 2024), event-driven and parallel; it
+  reproduces the published Brian2 model spike for spike.
+- **Biological corrections:** transmitters from known identity and cell-type consensus; no fast
+  synapses for dopamine, serotonin and octopamine; no spike drive through axo-axonic synapses onto
+  sensory neurons and Kenyon cells. Without them the published model falls into a self-sustaining
+  state.
+- **Learning:** dopamine-gated, timing-dependent plasticity at Kenyon cell → MBON synapses
+  (forward pairing depresses, backward pairing potentiates), with forgetting.
 
-### Органы чувств
+### Senses
 
-| Чувство | Входит в мозг через | Физический стимул |
-|---|---|---|
-| Обоняние | 2275–2635 ORN по клубочкам, профили DoOR | диффузия 30+ летучих веществ фрукта, CO₂, геосмин, cVA самцов |
-| Вкус | лабеллярные GRN (сахар, вода, горечь, Ir94e, соль) | химия поверхности и осмолярность яблока |
-| Зрение | 3900–8800 фоторецепторов (гистамин), по колонкам глаза | трассировка лучей: яблоко и другие мухи |
-| Температура | термосенсоры усиков; кандидаты в ноцицепторы ног у самца | температура тела из теплообмена с воздухом и полом |
-| Слух | орган Джонстона, JO-B | песня ухаживания вблизи |
-| Интероцепция | инсулин-производящие клетки, чувствительность от голода | зоб, сахар гемолимфы, энергия |
+Smell (2,000+ olfactory receptor neurons with DoOR response profiles, CO₂, geosmin, male cVA,
+wind-borne plumes), taste (labellar sugar, water, bitter, salt classes; osmolarity-gated water
+cells), vision (photoreceptors mapped to eye columns, ray-cast scene), temperature (antennal
+hot/cold cells and body heat), hearing (Johnston's organ, courtship song), wind (Johnston's organ
+wind neurons), proprioception and leg nociception (full-CNS flies), interoception (insulin cells,
+hunger-dependent gain).
 
-### Тело и физика
+### Body and physics
 
-- **Тело для ходьбы:** NeuroMechFly v2 (Wang-Chen et al. 2024) в MuJoCo — 6 ног, 42 привода,
-  гравитация, трение, сцепление лапок, контакты лапок с полом и яблоком, столкновения мух.
-  Нисходящие нейроны коннектома управляют двухканальным контроллером NeuroMechFly.
-- **Полёт и падение:** квазистационарная аэродинамика (сила крыльев ∝ амплитуде², сопротивление,
-  гравитация); без взмахов — свободное падение с предельной скоростью ~3 м/с.
-- **Тепло:** теплообмен тела массой 1 мг с воздухом и, через лапки, с полом.
-- **Моторная цепочка (самец, BANC):** мозг → нисходящие нейроны → VNC → мотонейроны мышц ног →
-  активация мышц → суставы NeuroMechFly, с обратной связью от проприоцепторов ног. Ритм шага
-  пока даёт генератор NeuroMechFly: коннектомная VNC его не создаёт (A81).
-- **Ноцицепция:** жар пола под конкретной лапкой возбуждает сенсорные нейроны этой ноги в
-  брюшной нервной цепочке (у BANC — размеченные мультидендритные, у самца — кандидаты).
-- **Схема тела:** состояние каждой ноги, крыльев, усиков и глаз плюс измеренная функция; травмы
-  задаёт экспериментатор, организм о них «не знает».
+- **NeuroMechFly v2 in MuJoCo:** six legs, 42 actuated joints, gravity, friction, tarsal adhesion,
+  contacts with the floor and every apple, fly–fly collisions.
+- **Motor chain (full-CNS flies):** descending neurons → VNC → leg motor neurons → muscle activation
+  → joints, with proprioceptive feedback. The stepping rhythm comes from NeuroMechFly's CPG because
+  the connectome VNC does not produce one (documented).
+- **Flight:** quasi-steady aerodynamics, drag, gravity and free fall; stabilisation is a reflex
+  layer.
+- **Heat:** body temperature from exchange with air and floor.
+- **Body schema and lesions:** state and measured function of every leg, wing, antenna and eye.
 
-### Мир
+### World
 
-- **Яблоко:** двухстадийное брожение (дрожжи → спирт + CO₂ + эфиры; уксуснокислые бактерии →
-  уксус), синяя плесень (*Penicillium expansum*: геосмин, патулин), целое или надрезанное,
-  зависимость от температуры (Q10) и кислорода.
-- **Несколько яблок** со своими возрастом, надрезом, размером и местом; размер мира задаётся в
-  метрах (от садка 0,1 м до комнаты 5 м).
-- **Семена и деревья:** семена высвобождаются из сгнившего плода; прорастают только после
-  холодной стратификации (~75 дн при 1–7 °C) в почве и влаге; сеянец растёт, через ~6 лет
-  дерево плодоносит и роняет новые яблоки. При постоянных 25 °C дерево не вырастет — как в жизни.
-- **Сезоны (опция):** умеренный климат; зимой мухи в холодовой коме.
-- **Воздух:** контейнер — хорошо перемешанный объём газа с вентиляцией; брожение, плесень,
-  бактерии и мухи меняют CO₂ и O₂ по стехиометрии. Закрытая банка становится бескислородной,
-  проветриваемый садок — нет.
+Several apples (age, cut/intact, size, position) that ferment, turn to vinegar and mould;
+container air (CO₂/O₂ mass balance from fruit, microbes, soil and flies, with ventilation);
+wind; seasons; soil; apple seeds that need cold stratification before they germinate, then grow
+into seedlings and fruiting trees; a life cycle from egg to adult; individual mortality
+(Gompertz ageing, starvation, heat, cold, anoxia, mould toxin).
 
-### Обучение и размножение
+## Quick start
 
-- **Память:** зависящая от дофамина и порядка событий пластичность синапсов клетки Кеньона → MBON
-  (запах→наказание ослабляет, наказание→запах усиливает; Handler et al. 2019), с забыванием.
-- **Жизненный цикл:** песня ухаживания и готовность самки исходят из мозгов; спаривание снижает
-  возбудимость pC1 (половой пептид), откладку яиц запускают oviDN; яйца → личинки → куколки →
-  новые взрослые мухи со своими мозгами (~9,5 сут при 25 °C). Плесень и уксус снижают выживание
-  личинок.
-
-## Быстрый старт
-
-**Docker** (рекомендуется):
+**Docker**
 
 ```bash
 docker compose up --build
 ```
 
-Откройте http://localhost:8800. При первом запуске скачается ~0,7 ГБ открытых данных коннектомов
-в `./data`. Выделите Docker Desktop не меньше 6 ГБ памяти.
+Open http://localhost:8800. The first start downloads about 1.2 GB of public connectome data into
+`./data`. Give Docker at least 6 GB of memory.
 
-**Локально** (macOS / Linux, Python 3.12):
+**Local** (Python 3.12, macOS or Linux)
 
 ```bash
 uv venv --python 3.12 .venv && uv pip install -e ".[validate]"
@@ -148,109 +121,116 @@ uv venv --python 3.12 .venv && uv pip install -e ".[validate]"
 scripts/download_data.sh && .venv/bin/python -m flysim.live
 ```
 
-## Как пользоваться сайтом
+## Using the web app
 
-1. **Условия** — размер мира в метрах, сезоны, почва, кислород, CO₂, температура, объём
-   контейнера и вентиляция, список яблок (возраст, надрез, размер, место), травмы и схема тела, число самцов и самок, голод, горячая зона на полу, научные контроли
-   (обучение вкл/выкл, «короткий путь» наказания, спонтанная ходьба), длина сессии и перемотка
-   суток. У каждого параметра подписана норма.
-2. **Наблюдение** — кнопки «+ самец / + самка» во время симуляции, арена, мозг каждой мухи целиком (каждый нейрон на реальном месте, вспыхивает
-   при спайке), внутреннее состояние, химия яблока относительно нормы и живая лента событий.
-3. **Логи** — скачать всё одним архивом.
+1. **Observations** (home): every running and saved run. Several runs can work at once; each can be
+   opened in its own browser tab.
+2. **New observation:** choose a *free simulation* (world size in metres, seasons, soil, wind, air,
+   apples, flies, female nervous system, injuries, scientific controls, optional time limits) or a
+   *prepared experiment* (protocol, group, seed).
+3. **Observation:** arena, every fly's whole brain (each neuron at its real position), internal
+   state, body schema, apple chemistry with reference values. While running you can add flies and
+   apples. Any moment can be replayed.
+4. **Chronicle (god panel):** a timeline of everything detected — fights, courtship, mating, eggs,
+   births and deaths with causes, feeding, punishment and reward signals (neural correlates),
+   memory changes, apple stages, air alarms, plants. Filter, expand, copy, jump to the moment.
+   Each event shows which brain regions dominated and how signal flowed between regions. Region
+   dominance over time per fly.
+5. **Passports:** every fly has a unique ID, origin and parents, nervous-system coverage, mechanism
+   mode, individual tolerances and life history.
 
-Сессии считаются нейрон за нейроном (около 1/20 реального времени для пары); между сессиями мир
-перематывается: яблоко гниёт, воздух меняется, мухи голодают, яйца развиваются, вылупляются
-взрослые.
+Without a limit, a free simulation runs until life in the world ends: no adult flies and no brood
+left.
 
-## Логи
+## Experiments and statistics
 
-| Файл | Содержимое |
-|---|---|
-| `events.txt`, `events.jsonl` | что, когда и с кем произошло: где муха, еда, жар, запахи, контакты, песня, спаривание, яйца, сигналы награды и наказания, изменения памяти, рождения, смерти |
-| `timeseries.csv` | каждые 0,1 с для каждой мухи: положение, состояние, голод, энергия, зоб, температура, запах и вкус, частоты ключевых нейронов, PPL1 (наказание), PAM (награда), сила памяти |
-| `apple.csv` | сахар, спирт, уксус, дрожжи, бактерии, плесень, летучие вещества, яйца/личинки/куколки |
-| `config.json` | условия прогона |
+```bash
+.venv/bin/python scripts/series.py list
+```
 
-> Частоты нейронов награды и наказания — **функциональные нейронные корреляты** ценности стимула,
-> а не измерение субъективного переживания.
+```bash
+.venv/bin/python scripts/series.py plan tmaze_choice 10
+```
 
-## Эксперименты
+```bash
+.venv/bin/python scripts/series.py run tmaze_choice 10 --proc 8
+```
 
-`scripts/run_all.sh` запускает лабораторные парадигмы с контролями и пишет `REPORT.md`:
+Protocols declare a hypothesis, groups and controls (no plasticity, no shortcuts, reflexes only).
+The analysis reports means, 95 % confidence intervals, Cohen's d, Welch and Mann–Whitney tests,
+and the replicates needed for 80 % power. Each run is reproducible from its experiment ID and
+`manifest.json`. See [EXPERIMENT_DESIGN.md](EXPERIMENT_DESIGN.md).
 
-| Вопрос | Парадигма | Контроли |
-|---|---|---|
-| Выбор после неприятного опыта, сохранение памяти | T-лабиринт запах + наказание (Tully & Quinn 1985), тесты через 0–3 ч | без пластичности, без «короткого пути» наказания, только рефлексы |
-| Избегание места неприятного стимула | горячая зона пола (Ofstad et al. 2011) | без пластичности |
-| Поиск еды после наказания | время до плода, извилистость пути, время на плоде | без пластичности |
-| Конфликт «еда или жар» | тёплое кольцо вокруг бродящего плода, голодные и сытые | — |
-| Ухаживание и драки | самец + самка, два самца у яблока | — |
-| Интеграция сенсорики, устойчивость состояний | пробы на мозге без тела | — |
+## Logs and data
 
-## Научная честность
+Every run directory (`results/runs/<id>/`) contains `frames.jsonl` (the full history: positions
+every 0.1 s, whole-brain spikes every second and around events), `events.jsonl`/`events.txt`,
+`timeseries.csv` (states, neural readouts, motor commands and body movement), `apple.csv` and
+`manifest.json` (model version, mechanism mode, connectome coverage, conditions). Reward and
+punishment rates are functional neural correlates, not measurements of experience.
 
-- Различия самца и самки FlyWire нельзя считать половыми без поправки на разную полноту
-  нервной системы (у самки FlyWire нет VNC) — см. MODEL_SCOPE.md.
-- Серии с повторами, 95 % ДИ, размером эффекта и расчётом мощности: `scripts/series.py`.
+## Scientific status
 
-- Поведение никогда не скриптуется; моторные *примитивы* (выпад, копуляция) запускаются только
-  активностью мозга и записаны как допущения.
-- Путь от болевых стимулов тела к дофаминовым нейронам наказания коннектомная модель **не**
-  воспроизводит; используется измеренная физиология, и всегда считается контроль без неё.
-- Рефлексы стабилизации полёта (жужжальца, VNC) — рефлекторный слой; ходьба — полная физика.
-- Потомки получают коннектом родителя: существует только один коннектом каждого пола.
-- Метакогниция не моделируется; возможные индикаторы (задержка решения, колебания) только
-  отслеживаются.
+Validated: spike-exact reproduction of the reference model; sugar → feeding motor neuron and
+bitter suppression; network stability; CO₂ activates punishment dopamine neurons innately;
+hunger-dependent feeding emerges; timing-dependent plasticity; BANC female close to the FlyWire
+female on identical tests; noxious leg input reaches punishment dopamine neurons through the full
+CNS. Open: courtship and aggression have not yet emerged; the VNC produces no stepping rhythm;
+the stability of the antennal lobe depends on one probably wrong transmitter label
+(KNOWN_ISSUES #5). Metacognition is not added as a separate module: if flies have it, it would
+have to arise from the simulated connectome itself, so only candidate indicators are tracked.
 
-## Архитектура
+## Architecture
 
 ```mermaid
 flowchart LR
-  subgraph Мир
-    A[Яблоко: брожение, плесень] --> AIR[Воздух контейнера: CO2, O2]
-    A --> OD[Летучие вещества: диффузия]
-    PHY[Физика MuJoCo: пол, яблоко, тела]
+  subgraph World
+    A[Apples: fermentation, mould, seeds] --> AIR[Air: CO2, O2, wind]
+    A --> OD[Odour plumes]
+    PHY[MuJoCo: floor, apples, bodies]
   end
-  OD --> S[Сенсорные нейроны]
+  OD --> S[Sensory neurons]
   AIR --> S
   PHY --> S
-  S --> B[LIF-мозг по коннектому]
-  M[Метаболизм, интероцепция] --> S
-  B --> DN[Нисходящие нейроны]
-  DN --> C[Контроллер NeuroMechFly / аэродинамика полёта]
+  S --> B[Connectome LIF brain + VNC]
+  M[Metabolism, interoception] --> S
+  B --> DN[Descending neurons]
+  B --> MN[Leg motor neurons]
+  DN --> C[NeuroMechFly controller / flight aerodynamics]
+  MN --> MU[Muscles] --> PHY
   C --> PHY
-  B --> P[Пластичность KC→MBON]
-  P --> B
+  B --> P[KC→MBON plasticity] --> B
 ```
 
-## Производительность
+## Performance
 
-Apple M2, 8 ГБ: один мозг ≈ 1,7 с счёта на 1 с модельного времени; пара с телами NeuroMechFly ≈
-18 с на 1 с. В память помещается до 4–6 мух с мозгами.
+On an 8-core laptop CPU: one brain ≈ 1.7 s of compute per simulated second; a pair of flies with
+NeuroMechFly bodies ≈ 15–20 s per simulated second. Memory ≈ 0.4 GB per fly. Replicated series
+scale with the number of processes.
 
-## Данные и источники
+## Data, references, license
 
-FlyWire v783 (Dorkenwald et al. 2024; Schlegel et al. 2024) через Shiu et al. 2024 · Janelia Male
-CNS v1.0 (CC-BY) · Matsliah et al. 2024 (колонки глаза) · DoOR (Münch & Galizia 2016) ·
-NeuroMechFly v2 (Wang-Chen et al. 2024). Полный список с числами — в
-[ASSUMPTIONS.md](ASSUMPTIONS.md).
+Code: MIT ([LICENSE](LICENSE)). Data are downloaded from their sources and keep their own licenses
+([NOTICE.md](NOTICE.md)): FlyWire (Dorkenwald et al. 2024; Schlegel et al. 2024), Shiu et al. 2024,
+Janelia Male CNS v1.0, BANC (Bates et al. 2025), Matsliah et al. 2024, DoOR (Münch & Galizia 2016),
+NeuroMechFly v2 (Wang-Chen et al. 2024).
 
-## Структура репозитория
+## Repository layout
 
 ```
-flysim/brain      спайковый симулятор, пластичность, сборка мозга
-flysim/data       загрузчики коннектомов и разметки
-flysim/agent      органы чувств, метаболизм, моторика, тела, физика, муха
-flysim/world      яблоко, атмосфера, популяция, мир
-flysim/sim        эксперименты, запись, журнал событий
-flysim/live       сайт (сервер + страница)
-flysim/viz        экспорт офлайн-просмотрщика
-scripts           загрузка данных, эксперименты, отчёт, проверки
+flysim/brain      spiking simulator, plasticity, brain factory and calibration
+flysim/data       FlyWire, BANC and Male CNS loaders, annotations
+flysim/agent      senses, metabolism, motor readout, motor chain, bodies, physics, mortality, fly
+flysim/world      apples, atmosphere, plants, population, world
+flysim/sim        experiments, protocols, chronicle, event log, provenance
+flysim/live       web app
+scripts           data download, validation, series, probes
 ```
 
-## Релизы
+## Releases
 
-| Версия | Что внутри |
+| Version | Content |
 |---|---|
-| 0.2.0 | Методология (режимы механизмов, манифест, протоколы, статистика), полная моторная цепочка, самка BANC, схема тела и травмы, несколько яблок, деревья, сезоны |
-| 0.1.0 | Мозги по коннектомам (оба пола), реалистичные тела, физика, гниющее яблоко, атмосфера, обучение, размножение, сайт, логи, Docker |
+| 0.3.0 | Multi-run web app with god panel (chronicle, region dynamics, passports), prepared experiments from the browser, BANC female calibrated per cell type, pain pathway through the full CNS, individual mortality and natural end, wind and soil respiration, MIT license |
+| 0.2.0 | Mechanism modes and provenance, protocols and statistics, male motor chain, BANC female, body schema, several apples, trees, seasons |
+| 0.1.0 | Connectome brains, NeuroMechFly bodies, physics, rotting apple, atmosphere, learning, reproduction, web app, Docker |

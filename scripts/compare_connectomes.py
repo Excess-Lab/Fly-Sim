@@ -4,7 +4,7 @@ Same stimuli, same readouts identified by cell type in both datasets:
  1. runaway check (activity after stimulus offset)
  2. sugar GRNs -> MN9 (Shiu et al. 2024), plus bitter suppression
  3. sensory -> reinforcement DANs (PPL1/PAM), ORN -> PN, heat -> TRN targets
-Output: results/female_connectome_comparison.json
+Output: results/connectome_comparison.json
 """
 import json
 
@@ -23,7 +23,7 @@ TESTS = {
     "DNp09->leg MNs": ([r"^DNp09$"], r"^(Ti flexor MN|Ti extensor MN|Tr flexor MN|Tr extensor MN)$"),
 }
 out = {}
-for ds in ("female", "female_banc"):
+for ds in ("female", "female_banc", "male"):
     b, ann = make_brain(ds)
     t = pd.Series(ann.type.to_numpy())
     res = {}
@@ -44,4 +44,4 @@ for ds in ("female", "female_banc"):
     res["active_after_offset"] = int(np.count_nonzero(c))
     out[ds] = res
     print(ds, json.dumps(res, ensure_ascii=False), flush=True)
-(ROOT / "female_connectome_comparison.json").write_text(json.dumps(out, indent=1))
+(ROOT / "connectome_comparison.json").write_text(json.dumps(out, indent=1))

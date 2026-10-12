@@ -1,5 +1,5 @@
 #!/bin/sh
-# Downloads the public connectome data (~0.7 GB) into data/raw. Safe to re-run: skips files
+# Downloads the public connectome data (~1.2 GB) into data/raw. Safe to re-run: skips files
 # that are already complete. All sources are open (MIT / CC-BY); see README.
 set -e
 cd "$(dirname "$0")/.."
@@ -29,4 +29,9 @@ MC=https://storage.googleapis.com/flyem-male-cns/v1.0/connectome-data/flat-conne
 get $MC/body-annotations-male-cns-v1.0-minconf-0.5.feather $RAW/malecns/body-annotations-male-cns-v1.0-minconf-0.5.feather 14483314
 get $MC/body-neurotransmitters-male-cns-v1.0.feather      $RAW/malecns/body-neurotransmitters-male-cns-v1.0.feather 43282834
 get $MC/connectome-weights-male-cns-v1.0-minconf-0.5-traced-only.feather $RAW/malecns/connectome-weights-male-cns-v1.0-minconf-0.5-traced-only.feather 508025642
+echo "BANC 888: female brain + ventral nerve cord (Bates et al. 2025)"
+mkdir -p $RAW/banc
+BANC=https://storage.googleapis.com/lee-lab_brain-and-nerve-cord-fly-connectome/compiled_data/banc_888
+get $BANC/banc_888_meta.feather $RAW/banc/banc_888_meta.feather 57503026
+get $BANC/banc_888_edgelist_simple_v3.feather $RAW/banc/banc_888_edgelist_simple_v3.feather 359161658
 echo "done"
