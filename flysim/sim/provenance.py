@@ -40,8 +40,9 @@ def model_version() -> str:
         return "unknown"
 
 
-def mechanism_mode(cfg) -> str:
-    if cfg.us_punish_shortcut or cfg.us_reward_shortcut:
+def mechanism_mode(cfg, has_vnc: bool = False) -> str:
+    punish = cfg.us_punish_shortcut and not has_vnc   # VNC flies: pain via connectome
+    if punish or cfg.us_reward_shortcut:
         return "experimental_shortcuts"
     if cfg.spontaneous:
         return "connectome_plus_approximations"
@@ -82,14 +83,17 @@ def connectome_coverage(fly) -> dict:
 def fly_provenance(fly) -> dict:
     c = fly.cfg
     shortcuts = []
-    if c.us_punish_shortcut:
+    has_vnc = len(getattr(fly, "noci_idx", [])) > 0
+    if c.us_punish_shortcut and not has_vnc:
         shortcuts.append("A24: noxious stimulus -> PPL1 punishment DANs (measured physiology)")
+    elif c.us_punish_shortcut:
+        shortcuts.append("A24 (shocks only): electric shock -> PPL1; heat pain via connectome")
     if c.us_reward_shortcut:
         shortcuts.append("A25: sugar ingestion -> PAM reward DANs (measured physiology)")
     approx = list(ALWAYS_APPROX)
     if c.spontaneous:
         approx.append(("A30", "spontaneous locomotor drive"))
-    return {"fly": c.name, "sex": c.sex, "seed": c.seed, "mode": mechanism_mode(c),
+    return {"fly": c.name, "sex": c.sex, "seed": c.seed, "mode": mechanism_mode(c, has_vnc),
             "plasticity": c.plasticity, "shortcuts": shortcuts,
             "approximations": [f"{a}: {b}" for a, b in approx],
             "connectome_coverage": connectome_coverage(fly), "body": c.body}

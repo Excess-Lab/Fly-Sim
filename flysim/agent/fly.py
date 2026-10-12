@@ -174,8 +174,14 @@ class Fly:
         touch = world.touching(self)
         r_ppk = np.full(len(self.ppk23), 2.0 + (80.0 if touch is not None else 0.0))
         punish = 0.0
-        if self.cfg.us_punish_shortcut:
+        # A24 only where the pathway cannot exist: flies with a VNC feel noxious heat through their
+        # leg nociceptors -> VNC -> ascending neurons -> brain -> PPL1 (connectome; tested in
+        # scripts/probe_pain_pathway.py). Experimental shocks still use measured physiology.
+        has_vnc = len(self.noci_idx) > 0
+        if self.cfg.us_punish_shortcut and not has_vnc:
             punish = 8.0 * max(0.0, temp - 30.0) + world.shock_at(self)
+        elif self.cfg.us_punish_shortcut:
+            punish = world.shock_at(self)   # electric shock (no modelled shock receptors)
         r_ppl1 = np.full(len(self.ppl1), punish)
         reward = 0.0
         if self.cfg.us_reward_shortcut and self.body.proboscis and on_apple:

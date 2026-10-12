@@ -111,7 +111,8 @@ SCHEMA = {
         "plasticity": {"label": "Обучение (пластичность KC→MBON)", "type": "bool", "default": True,
                        "norm": "выкл. — контроль «только рефлексы»"},
         "us_shortcut": {"label": "Наказание → дофамин PPL1 по данным опытов (A24)", "type": "bool",
-                        "default": True, "norm": "выкл. — только путь по коннектому"},
+                        "default": True, "norm": "действует только у самки FlyWire (нет VNC) и для ударов тока; "
+                                                 "у мух с VNC жар идёт через ноцицепторы по коннектому"},
         "reward_shortcut": {"label": "Сахар → дофамин PAM по данным опытов (A25)", "type": "bool",
                             "default": True, "norm": "выкл. — только путь по коннектому"},
         "spontaneous": {"label": "Спонтанная ходьба (A30)", "type": "bool", "default": True,

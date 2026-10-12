@@ -69,7 +69,7 @@ def make_frame(world, t_session, counts: dict, log, status: str = "", index: int
             "rates": {k: round(float(v), 1) for k, v in r.items()},
             "mbon_w_min": round(float(f.brain.kc_mbon_strength().min()), 3) if f.brain.pl_on else None,
             "n_active": int(np.count_nonzero(c)), "schema": f.schema.summary(),
-            "dataset": getattr(f, "dataset_name", f.cfg.sex), "mode_mech": mechanism_mode(f.cfg),
+            "dataset": getattr(f, "dataset_name", f.cfg.sex), "mode_mech": mechanism_mode(f.cfg, len(getattr(f, "noci_idx", [])) > 0),
             "idx": _b64(nz.astype(np.uint32)), "val": _b64(np.minimum(c[nz], 255).astype(np.uint8)),
         }
         fr["flies"][f.cfg.name]["mode"] = b.mode
