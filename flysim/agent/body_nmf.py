@@ -30,7 +30,7 @@ LEG_NERVE = {"f": "ProLN", "m": "MesoLN", "h": "MetaLN"}
 class NMFArena:
     """One MuJoCo world shared by all flies: floor + apple sphere."""
 
-    def __init__(self, apples, _unused, names_poses, half_size: float = 1000.0):
+    def __init__(self, apples, _unused, names_poses, half_size: float = 1000.0, arena: float = None):
         """apples: list of (center xyz, radius) in mm."""
         if not isinstance(apples, list):            # backward compatible (center, r) call
             apples = [(apples, _unused)]
@@ -43,6 +43,17 @@ class NMFArena:
             # legs collide with every 'ground' geom -> they can stand and walk on each apple
             self.world.ground_geoms.append(g)
             self.apple_geoms.append(g)
+        # container walls: thin vertical boxes; flies can stand and walk on them like on the floor
+        self.wall_ids_names = []
+        if arena is not None:
+            h = max(30.0, arena)
+            for k, (px, py, sx, sy) in enumerate(((arena + 1, 0, 1, arena + 2), (-arena - 1, 0, 1, arena + 2),
+                                                  (0, arena + 1, arena + 2, 1), (0, -arena - 1, arena + 2, 1))):
+                g = self.world.mjcf_root.worldbody.add_geom(
+                    type=GEOM_TYPES["box"], name=f"wall{k}", pos=(px, py, h / 2), size=(sx, sy, h / 2),
+                    rgba=(0.8, 0.8, 0.8, 0.15), contype=0, conaffinity=0)
+                self.world.ground_geoms.append(g)
+                self.wall_ids_names.append(f"wall{k}")
         self.flies = {}
         for name, pos, yaw in names_poses:
             fly = make_locomotion_fly(name=name, add_adhesion=True, colorize=False)
@@ -69,6 +80,7 @@ class NMFArena:
         m, d = self.sim.mj_model, self.sim.mj_data
         self.apple_ids = {mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, f"apple{k}")
                           for k in range(len(self.apple_geoms))}
+        self.wall_ids = {mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, n) for n in self.wall_ids_names}
         self.floor_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "ground_plane")
         self.drive = {n: np.zeros(2) for n in self.flies}
         self.kinematic = {}   # name -> (pos, yaw) while flying
@@ -122,6 +134,21 @@ class NMFArena:
             jid = m.body_jntadr[root]
             self.free_adr[name] = (m.jnt_qposadr[jid], m.jnt_dofadr[jid])
 
+    def tucked_pose(self, name):
+        """Flight posture: legs drawn up under the body (tibiae flexed, femora raised)."""
+        if not hasattr(self, "_tucked"):
+            self._tucked = {}
+        if name not in self._tucked:
+            order = self.flies[name].get_actuated_jointdofs_order("position")
+            ja = np.array(self.pps.default_pose_by_dof_order(order), dtype=float)
+            for d, i in self.dof_index[name].items():
+                if "tibia-pitch" in d:
+                    ja[i] = 2.3 if ja[i] > 0 else -2.3
+                elif "trochanterfemur-pitch" in d:
+                    ja[i] = ja[i] - 0.8 if ja[i] < 0 else ja[i] + 0.8
+            self._tucked[name] = ja
+        return self._tucked[name]
+
     def _apply_leg_lesions(self, name, act, sch):
         ja = np.array(act.joint_angles, dtype=float)
         adh = np.array(act.adhesion_onoff, dtype=bool)
@@ -164,6 +191,8 @@ class NMFArena:
                 if g in lg:
                     if other in self.apple_ids:
                         out[lg[g]] = "apple"
+                    elif other in self.wall_ids and out[lg[g]] is None:
+                        out[lg[g]] = "wall"
                     elif other == self.floor_id and out[lg[g]] is None:
                         out[lg[g]] = "floor"
         return out
@@ -180,7 +209,15 @@ class NMFArena:
         for _ in range(n):
             for name in self.flies:
                 if name in self.kinematic:
+                    # in the air: legs at rest pose, tarsal adhesion off (otherwise adhesion
+                    # actuators pull the legs while the body is moved -> numerical blow-up)
+                    order = self.flies[name].get_actuated_jointdofs_order("position")
+                    apply_locomotion_action(self.sim, name, LocomotionAction(
+                        joint_angles=self.pps.default_pose_by_dof_order(order),
+                        adhesion_onoff=np.zeros(6, bool)))
                     self.set_kinematic(name, *self.kinematic[name])
+                    qa, va = self.free_adr[name]
+                    self.sim.mj_data.qvel[va:va + 6] = 0.0
                     continue
                 obs = HybridControllerObservation.from_sim(self.sim, name)
                 act = self.ctrl[name].step(self.drive[name], obs)
@@ -222,7 +259,8 @@ class NMFBody:
         self.contacts = self.arena.leg_contacts(self.name)
         on = [c for c in self.contacts.values() if c]
         if on:
-            self.surface = "apple" if on.count("apple") >= max(1, len(on) // 2) else "floor"
+            self.surface = ("apple" if on.count("apple") >= max(1, len(on) // 2) else
+                            "wall" if on.count("wall") >= max(1, len(on) // 2) else "floor")
 
     def heading(self):
         return np.array([np.cos(self.yaw), np.sin(self.yaw), 0.0])
@@ -253,7 +291,7 @@ class NMFBody:
         if self.mode == "walk":
             if cmd["takeoff"] and vigor > 0:
                 self.mode, self.flight_t = "fly", 0.0
-                self.arena.kinematic[self.name] = (self.pos + np.array([0, 0, 1.0]), self.yaw)
+                self.arena.kinematic[self.name] = (self.pos + 3.0 * self.normal(apple_c), self.yaw)
                 self._n0 = self.normal(apple_c)
                 return
             base = cmd["forward"] - cmd["backward"]
@@ -292,24 +330,41 @@ class NMFBody:
             yaw += 3 * p.w_turn * cmd["turn"] * dt
             if spontaneous:
                 yaw += p.spont_turn_sd * self.rng.standard_normal() * np.sqrt(dt)
+        # rotational (yaw) dynamics: inertia + aerodynamic damping (~80 ms; Hesselberg & Lehmann
+        # 2007), gust torques; steering from wing stroke-amplitude asymmetry (A86)
+        if not hasattr(self, "yaw_rate"):
+            self.yaw_rate = 0.0
+        ch = self.arena.chains.get(self.name)
         sch = self.arena.lesions.get(self.name)
-        if sch is not None:   # damaged wings: less force; asymmetric damage yaws the fly
+        dl = dr = 0.0
+        if sch is not None:
             dl, dr = sch.wing_damage["left"], sch.wing_damage["right"]
             amp *= float(np.sqrt(max(0.0, 1.0 - 0.5 * (dl + dr))))
-            yaw += 2.0 * (dr - dl) * dt
+        if self.flight_t >= p.takeoff_s:
+            if ch is not None and ch.has_flight_chain:
+                aL = (1 - dl) * (1 + 0.3 * ch.amp_lr[0])
+                aR = (1 - dr) * (1 + 0.3 * ch.amp_lr[1])
+                torque = 600.0 * (aR - aL)          # larger right stroke -> turn left (+yaw)
+                amp *= 1.0 + 0.2 * (ch.power_act - 0.5)
+            else:  # no VNC: brain DN turning + damaged-wing asymmetry only (A36b)
+                torque = 600.0 * ((1 - dr) - (1 - dl)) * 0.3
+            gust = self.rng.standard_normal() * 40.0 / np.sqrt(dt / 0.01)
+            self.yaw_rate += (torque + gust - self.yaw_rate / 0.08) * dt
+            yaw += self.yaw_rate * dt
         wind = np.array([*getattr(self.arena, "wind", (0.0, 0.0)), 0.0]) * 1000.0
         pos = self.aero.step(pos, yaw, amp, 0.0, dt, wind=wind)
         for k in range(2):
-            if abs(pos[k]) > arena:   # wall: inelastic bounce
-                pos[k] = np.sign(pos[k]) * arena
+            if abs(pos[k]) > arena - 3.0:   # wall: inelastic bounce, body kept clear of the wall
+                pos[k] = np.sign(pos[k]) * (arena - 3.0)
                 self.aero.v[k] *= -0.3
                 yaw = np.pi - yaw if k == 0 else -yaw
         d = np.linalg.norm(pos - apple_c)
-        if self.flight_t > p.takeoff_s and (d <= apple_r + 1.0 or pos[2] <= 0.8):
+        if self.flight_t > 0.05 and (d <= apple_r + 1.0 or pos[2] <= 0.8):
+            # hand back to physics with the legs clear of the surface (they touch down by gravity)
             if d <= apple_r + 1.0:
-                pos = apple_c + (pos - apple_c) / d * (apple_r + 1.0)
+                pos = apple_c + (pos - apple_c) / d * (apple_r + 2.2)
             else:
-                pos[2] = 0.8
+                pos[2] = 2.2
             self.impact_speed = float(np.linalg.norm(self.aero.v))
             self.arena.set_kinematic(self.name, pos, yaw)
             del self.arena.kinematic[self.name]

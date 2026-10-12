@@ -89,13 +89,15 @@ class Fly:
             from flysim.agent.motor_chain import MotorChain
             self.chain = MotorChain(self)
         self.prop_idx = self.chain.prop_idx if self.chain is not None else np.zeros(0, np.int64)
+        self.haltere_idx = self.chain.haltere_idx if self.chain is not None else np.zeros(0, np.int64)
         self.stim_idx = np.concatenate([
             self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
             self.intero.idx, self.ppk23, self.ppl1, self.pam, self.noci_idx,
-            self.prop_idx, self.windsense.idx]).astype(np.int64)
+            self.prop_idx, self.windsense.idx, self.haltere_idx]).astype(np.int64)
         self.brain.set_poisson_targets(np.concatenate([
             self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
-            self.intero.idx, self.ppk23, self.noci_idx, self.prop_idx, self.windsense.idx]))
+            self.intero.idx, self.ppk23, self.noci_idx, self.prop_idx, self.windsense.idx,
+            self.haltere_idx]))
         self.motor = MotorReadout(ann)
         from flysim.agent.physics import BodyTemperature
         self.thermal = BodyTemperature(25.0)
@@ -223,8 +225,10 @@ class Fly:
         for sd in ("left", "right"):
             if sch.antenna[sd] != "intact":
                 r_wind[self.windsense.side == sd] = 0.0
+        r_hal = self.chain.haltere_rates(getattr(self.body, "yaw_rate", 0.0), self.body.mode == "fly") \
+            if self.chain is not None else np.zeros(0)
         return np.concatenate([r_olf, r_gust, r_th, r_vis, r_hear, r_int, r_ppk, r_ppl1, r_pam,
-                               r_noci, r_prop, r_wind])
+                               r_noci, r_prop, r_wind, r_hal])
 
     def step(self, world, dt: float):
         rates = self.sense(world)

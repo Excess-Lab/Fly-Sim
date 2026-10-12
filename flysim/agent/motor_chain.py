@@ -20,7 +20,7 @@ Female (FlyWire brain only) has no VNC: the chain is unavailable and walking use
 """
 import mujoco
 import numpy as np
-import pandas as pd
+import pandas as pd  # noqa: F401
 
 LEGS = ["lf", "lm", "lh", "rf", "rm", "rh"]
 SUB = {"f": "fl", "m": "ml", "h": "hl"}
@@ -71,6 +71,22 @@ class MotorChain:
             self.prop[(leg, "hair_plate")] = np.flatnonzero(base & (cc == "hair plate"))
             self.prop[(leg, "campaniform")] = np.flatnonzero(base & (cc == "campaniform sensilla"))
         self.prop_idx = np.concatenate(list(self.prop.values())).astype(np.int64)
+        # ---- flight: halteres -> VNC -> wing steering / power motor neurons (A86) ----
+        sub_all = ann.cell_sub_class.astype(str).to_numpy()
+        is_hal = np.char.find(sub_all.astype(str), "haltere") >= 0
+        is_hal &= ann.super_class.astype(str).str.contains("sensory").to_numpy() | \
+            (ann.cell_class.astype(str) == "mechanosensory_proprioceptive").to_numpy()
+        self.haltere = {sd: np.flatnonzero(is_hal & (side == sd)) for sd in ("left", "right")}
+        self.haltere_idx = np.concatenate([self.haltere["left"], self.haltere["right"]]).astype(np.int64)
+        tt = pd.Series(t).str.replace(" MN", "", regex=False).to_numpy()
+        up = np.isin(tt, ["b1", "b2", "b3", "ps1"])            # raise stroke amplitude
+        down = np.isin(tt, ["i1", "i2", "iii1", "iii3"])       # lower stroke amplitude
+        power = pd.Series(t).str.match(r"^(DLMn|DVMn)").to_numpy()
+        self.steer = {(sd, k): np.flatnonzero(mn & m & (side == sd)) for sd in ("left", "right")
+                      for k, m in (("up", up), ("down", down))}
+        self.power_mn = np.flatnonzero(mn & power)
+        self.amp_lr = np.zeros(2)       # filtered amplitude modulation (left, right), -1..1
+        self.power_act = 0.0
         self.act = {k: 0.0 for k in self.groups}
         self.mn_rate = {k: 0.0 for k in self.groups}
         self.offsets = {}   # leg -> {dof name: rad}
@@ -134,8 +150,30 @@ class MotorChain:
                 out.append(np.full(len(self.prop[(leg, kind)]), min(val, 150.0)))
         return np.concatenate(out) if out else np.zeros(0)
 
+    @property
+    def has_flight_chain(self):
+        return len(self.haltere_idx) > 0 and sum(len(v) for v in self.steer.values()) > 0
+
+    def haltere_rates(self, yaw_rate: float, flying: bool) -> np.ndarray:
+        """Haltere afferents encode body rotation (Coriolis forces; Dickinson 1999): rotation to
+        the left excites the left-side population more and vice versa. ASSUMPTION(A86):
+        20 Hz tonic in flight + 6 Hz per rad/s of yaw rate, clipped to 0..200 Hz; 2 Hz at rest."""
+        if not flying:
+            return np.full(len(self.haltere_idx), 2.0)
+        l = np.clip(20.0 + 6.0 * yaw_rate, 0, 200)
+        r = np.clip(20.0 - 6.0 * yaw_rate, 0, 200)
+        return np.concatenate([np.full(len(self.haltere["left"]), l), np.full(len(self.haltere["right"]), r)])
+
     def update(self, counts: np.ndarray, dt_ms: float):
         """MN spikes -> muscle activation -> joint offsets (A82)."""
+        # wing steering: amplitude modulation per side from steering MN activity
+        a = np.exp(-dt_ms / 20.0)
+        for i, sd in enumerate(("left", "right")):
+            upr = counts[self.steer[(sd, "up")]].mean() / (dt_ms * 1e-3) if len(self.steer[(sd, "up")]) else 0.0
+            dnr = counts[self.steer[(sd, "down")]].mean() / (dt_ms * 1e-3) if len(self.steer[(sd, "down")]) else 0.0
+            self.amp_lr[i] = a * self.amp_lr[i] + (1 - a) * np.clip((upr - dnr) / 100.0, -1, 1)
+        pw = counts[self.power_mn].mean() / (dt_ms * 1e-3) if len(self.power_mn) else 0.0
+        self.power_act = a * self.power_act + (1 - a) * min(1.0, pw / 50.0)
         for k, ids in self.groups.items():
             r = counts[ids].mean() / (dt_ms * 1e-3) if len(ids) else 0.0
             self.mn_rate[k] = r

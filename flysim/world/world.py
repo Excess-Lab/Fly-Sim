@@ -130,7 +130,7 @@ class World:
             return
         self.arena_phys = NMFArena([(a.center, a.p.radius_mm) for a in self.apples],
                                    None, [(f.cfg.name, f.body.pos, f.body.yaw) for f in phys],
-                                   half_size=max(1000.0, 2 * self.arena))
+                                   half_size=max(1000.0, 2 * self.arena), arena=self.arena)
         for f in phys:
             old = f.body
             f.body = NMFBody(self.arena_phys, f.cfg.name, old.rng)
