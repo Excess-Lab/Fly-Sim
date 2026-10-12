@@ -56,7 +56,11 @@ SCHEMA = {
         "soil": {"label": "Почва под яблоками", "type": "bool", "default": False,
                  "norm": "без почвы семена не прорастут"},
         "moist": {"label": "Влажность почвы", "type": "bool", "default": False,
-                  "norm": "семенам нужна влага и для стратификации, и для прорастания"},
+                  "norm": "семенам нужна влага; влажная почва дышит сильнее (потребляет O₂, выделяет CO₂)"},
+        "wind_speed": {"label": "Ветер", "unit": "м/с", "min": 0.0, "max": 3.0, "step": 0.05, "default": 0.0,
+                       "norm": "0 — неподвижный воздух (садок); сквозняк ~0.1–0.5; мухи летают при ≲2–3 м/с"},
+        "wind_dir_deg": {"label": "Ветер дует в сторону", "unit": "°", "min": 0, "max": 359, "step": 5,
+                         "default": 0, "norm": "0° = вдоль оси X"},
     },
     "apples": {
         "list": {"label": "Яблоки", "type": "apples",
@@ -178,7 +182,9 @@ class Simulation:
         self.world = World(apple, apples=apples, arena=half, ambient_c=float(env["temp_c"]),
                            o2_pct=float(env["o2_pct"]), co2_ppm=float(env["co2_ppm"]), atm=atm,
                            seasonal=bool(wd["seasonal"]), base_temp_c=float(env["temp_c"]),
-                           plants=PlantWorld(soil=bool(wd["soil"]), moist=bool(wd["moist"])))
+                           plants=PlantWorld(soil=bool(wd["soil"]), moist=bool(wd["moist"])),
+                           wind=(float(wd.get("wind_speed", 0)) * np.cos(np.radians(float(wd.get("wind_dir_deg", 0)))),
+                                 float(wd.get("wind_speed", 0)) * np.sin(np.radians(float(wd.get("wind_dir_deg", 0))))))
         for k in range(len(apples)):
             self.world.plants.add_apple_seeds(k)
         # each apple has been lying here for its own age before the flies arrive
@@ -186,7 +192,9 @@ class Simulation:
             a.age(age * 24)
         self.world.sync_air()
         self.world.clock_h = 0.0
-        self.pending = []   # requests from the web page (add fly), applied between steps
+        self.pending = []   # requests from the web page (add fly / apple), applied between steps
+        self.passports = {}  # every fly that ever lived in this run (name -> Fly)
+        self.title = "Свободная симуляция"
         self.world.population = Population(max_adults=int(run["max_adults"]))
         if hz["enabled"]:
             self.world.zones.append(Zone(center=(-35.0, 25.0), radius=float(hz["radius_mm"]),
@@ -242,7 +250,13 @@ class Simulation:
                           body="nmf"), pos=pos, yaw=yaw)
         if note:
             f.events.append((round(f.t, 3), note))
+        import uuid
+        f.uid = f"FLY-{'M' if sex == 'male' else 'F'}-{uuid.uuid4().hex[:10].upper()}"
+        f.born_clock_h = self.world.clock_h
+        f.parents = None
+        f.note = note
         self.world.flies.append(f)
+        self.passports[f.cfg.name] = f
         return f
 
     def snapshot(self, t_session):
@@ -299,6 +313,7 @@ class Simulation:
             f = self.add_fly(sex, (ap.center[0] + rr * np.cos(ang), ap.center[1] + rr * np.sin(ang), 0.0),
                              ang + np.pi, 6.0,
                              note=f"вылупилась (мать {b.mother}, отец {b.father})")
+            f.parents = {"mother": b.mother, "father": b.father}
             f.age_d = 0.0
             self.log._ev(w, f, 0.0, "birth", f"новая муха {f.cfg.name} с собственным мозгом")
 
@@ -306,6 +321,24 @@ class Simulation:
         added = False
         while self.pending:
             req = self.pending.pop(0)
+            if req.get("type") == "add_apple":
+                w = self.world
+                r = float(req.get("radius_mm", 30.0))
+                x = float(np.clip(req.get("x_mm", 0.0), -w.arena + r, w.arena - r))
+                y = float(np.clip(req.get("y_mm", 0.0), -w.arena + r, w.arena - r))
+                a = Apple(AppleParams(radius_mm=r), center=(x, y), cut=bool(req.get("cut", True)),
+                          temp_c=w.ambient_c, o2_pct=w.o2_pct)
+                a.age(float(req.get("age_days", 0.0)) * 24)
+                w.apples.append(a)
+                if w.plants is not None:
+                    w.plants.add_apple_seeds(len(w.apples) - 1)
+                self.log.events.append({"id": len(self.log.events), "clock_h": round(w.clock_h, 4),
+                                        "t": 0.0, "session": self.log.session, "frame": self.chron.n,
+                                        "fly": "мир", "sex": "", "type": "apple", "cat": "world", "imp": 2,
+                                        "text": f"экспериментатор положил яблоко {len(w.apples)} "
+                                                f"({a.summary()})", "others": [], "pos": [x, y, r], "data": {}})
+                added = True
+                continue
             if req.get("type") == "add_fly":
                 w = self.world
                 if len(w.flies) >= int(self.cfg["run"]["max_adults"]):
@@ -380,6 +413,34 @@ class Simulation:
             except Exception:
                 pass
 
+    def passport(self, name: str) -> dict | None:
+        f = self.passports.get(name)
+        if f is None:
+            return None
+        from flysim.sim.provenance import fly_provenance
+        dead = next((d for d in self.world.deaths if d["name"] == name), None)
+        ev = [e for e in self.log.events if e.get("fly") == name or name in e.get("others", [])]
+        cnt = {}
+        for e in ev:
+            cnt[e.get("cat", "info")] = cnt.get(e.get("cat", "info"), 0) + 1
+        prov = fly_provenance(f)
+        return {"uid": getattr(f, "uid", ""), "name": name, "sex": f.cfg.sex,
+                "status": f"погибла: {dead['cause']}" if dead else "жива",
+                "born_world_h": round(getattr(f, "born_clock_h", 0.0), 2),
+                "age_d": round(f.age_d, 2), "parents": getattr(f, "parents", None),
+                "origin": getattr(f, "note", "") or "создана при запуске",
+                "connectome": prov["connectome_coverage"], "mode": prov["mode"],
+                "shortcuts": prov["shortcuts"], "approximations": prov["approximations"],
+                "seed": f.cfg.seed, "plasticity": f.cfg.plasticity,
+                "body": f.schema.summary(), "mated": f.mated, "mate": f.mate,
+                "hunger": round(f.meta.hunger, 3), "energy": round(f.meta.energy, 3),
+                "health": round(f.meta.health, 3), "bio_age_d": round(f.mortality.bio_age_d, 2),
+                "tolerances": {"голод_ч": round(f.mortality.starve_h, 1),
+                               "перегрев_мин": round(f.mortality.heat_min, 1),
+                               "холод_ч": round(f.mortality.cold_h, 1),
+                               "аноксия_ч": round(f.mortality.anoxia_h, 1)},
+                "event_counts": cnt, "life": [e for e in ev if e.get("imp", 1) >= 2][-200:]}
+
     def manifest(self) -> dict:
         from flysim.sim.provenance import manifest
         return manifest(self.world, {"name": "web_session", "config": self.cfg})
@@ -423,26 +484,103 @@ manifest.json              — версия модели, ID экспериме�
 """
 
 
+class ExperimentRun:
+    """A prepared experiment protocol running in the background, observable like a simulation."""
+
+    def __init__(self, protocol: str, group: str, seed: int):
+        from flysim.sim.protocol import PROTOCOLS
+        self.protocol, self.group, self.seed = protocol, group, seed
+        self.title = f"Эксперимент: {protocol} / {group} / seed {seed}"
+        self.status, self.error, self.result = "подготовка", None, None
+        self.stop_flag, self.paused = False, False
+        self.recorder = None
+        self.spec = PROTOCOLS[protocol]
+        self.run_id = None
+        self.started = time.time()
+
+    def run(self):
+        from flysim.sim import experiments as E
+        from flysim.sim import record
+        orig = record.Recorder.__init__
+        me = self
+
+        def hook(rec, *a, **k):
+            orig(rec, *a, **k)
+            me.recorder = rec
+            me.run_id = rec.chron.run_id
+        record.Recorder.__init__ = hook
+        try:
+            self.status = "идёт эксперимент"
+            fn = getattr(E, self.spec["function"])
+            self.result = fn(seed=self.seed, **self.spec["groups"][self.group], **self.spec["kwargs"])
+            self.status = "завершён"
+        except Exception as e:
+            self.error = f"{e}\n{traceback.format_exc()}"
+            self.status = "ошибка: " + str(e)
+        finally:
+            record.Recorder.__init__ = orig
+            self.stop_flag = True
+
+    @property
+    def chron(self):
+        return self.recorder.chron if self.recorder else None
+
+    @property
+    def log(self):
+        return self.recorder.log if self.recorder else None
+
+    @property
+    def world(self):
+        return self.recorder.world if self.recorder else None
+
+
 class App:
     def __init__(self):
-        self.sim = None
-        self.thread = None
+        self.sims = {}     # run_id -> Simulation | ExperimentRun
+        self.threads = {}
 
     def start(self, cfg):
-        self.stop()
         full = defaults()
         for g, items in (cfg or {}).items():
             if g in full:
                 full[g].update({k: v for k, v in items.items() if k in full[g]})
-        self.sim = Simulation(full)
-        self.thread = threading.Thread(target=self.sim.run, daemon=True)
-        self.thread.start()
+        sim = Simulation(full)
+        if cfg.get("title"):
+            sim.title = str(cfg["title"])[:80]
+        self.sims[sim.run_id] = sim
+        th = threading.Thread(target=sim.run, daemon=True)
+        th.start()
+        self.threads[sim.run_id] = th
+        return sim.run_id
 
-    def stop(self):
-        if self.sim:
-            self.sim.stop_flag = True
-            if self.thread:
-                self.thread.join(timeout=5)
+    def start_experiment(self, protocol, group, seed):
+        ex = ExperimentRun(protocol, group, int(seed))
+        th = threading.Thread(target=ex.run, daemon=True)
+        th.start()
+        for _ in range(600):           # wait until the recorder (and run id) exists
+            if ex.run_id or ex.error:
+                break
+            time.sleep(0.1)
+        rid = ex.run_id or f"exp-{int(time.time())}"
+        ex.run_id = rid
+        self.sims[rid] = ex
+        self.threads[rid] = th
+        return rid
+
+    def get(self, rid):
+        return self.sims.get(rid)
+
+    def stop(self, rid=None):
+        for k, sim in list(self.sims.items()):
+            if rid is None or k == rid:
+                sim.stop_flag = True
+
+    @property
+    def sim(self):          # most recent free simulation (backwards compatible endpoints)
+        for sim in reversed(list(self.sims.values())):
+            if isinstance(sim, Simulation):
+                return sim
+        return None
 
 
 _BRAINS = {}
@@ -455,14 +593,26 @@ def brain_static(sex):
     return _BRAINS[sex]
 
 
+def _source(app, rid):
+    """(chronicle-like reader, events list, live object or None) for a run id."""
+    sim = app.get(rid)
+    if sim is not None and sim.chron is not None:
+        return sim.chron, (sim.log.events if sim.log else []), sim
+    from flysim.sim.chronicle import RUNS, SavedRun
+    if (RUNS / rid / "frames.jsonl").exists():
+        sr = SavedRun(RUNS / rid)
+        return sr, sr.events(), None
+    return None, [], None
+
+
 def make_handler(app: App):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
 
-        def _send(self, body, ctype="application/json", extra=None):
+        def _send(self, body, ctype="application/json", extra=None, code=200):
             data = body.encode() if isinstance(body, str) else body
-            self.send_response(200)
+            self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Cache-Control", "no-store")
             for k, v in (extra or {}).items():
@@ -470,109 +620,153 @@ def make_handler(app: App):
             self.end_headers()
             self.wfile.write(data)
 
-        def _json(self, obj):
-            return self._send(json.dumps(obj, ensure_ascii=False, default=float))
+        def _json(self, obj, code=200):
+            return self._send(json.dumps(obj, ensure_ascii=False, default=float), code=code)
 
         def do_POST(self):
             u = urlparse(self.path)
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
+            parts = u.path.strip("/").split("/")
             if u.path == "/api/start":
-                threading.Thread(target=app.start, args=(body,), daemon=True).start()
-                return self._json({"ok": True})
-            if u.path == "/api/stop":
-                app.stop()
-                return self._json({"ok": True})
-            if u.path == "/api/add_fly" and app.sim:
-                app.sim.pending.append({"type": "add_fly", "sex": body.get("sex", "female")})
-                return self._json({"ok": True})
-            if u.path == "/api/pause" and app.sim:
-                app.sim.paused = not app.sim.paused
-                return self._json({"paused": app.sim.paused})
-            self.send_response(404)
-            self.end_headers()
+                return self._json({"run_id": app.start(body)})
+            if u.path == "/api/experiment":
+                return self._json({"run_id": app.start_experiment(body["protocol"], body["group"],
+                                                                  body.get("seed", 100))})
+            if len(parts) == 4 and parts[:2] == ["api", "sim"]:
+                sim = app.get(parts[2])
+                if sim is None:
+                    return self._json({"error": "нет такого наблюдения"}, 404)
+                what = parts[3]
+                if what == "stop":
+                    sim.stop_flag = True
+                    return self._json({"ok": True})
+                if what == "pause":
+                    sim.paused = not sim.paused
+                    return self._json({"paused": sim.paused})
+                if what in ("add_fly", "add_apple") and isinstance(sim, Simulation):
+                    sim.pending.append({"type": what, **body})
+                    return self._json({"ok": True})
+            return self._json({"error": "не найдено"}, 404)
 
         def do_GET(self):
             u = urlparse(self.path)
             q = parse_qs(u.query)
-            sim = app.sim
+            parts = u.path.strip("/").split("/")
             if u.path in ("/", "/index.html"):
                 return self._send(PAGE.read_text(), "text/html; charset=utf-8")
             if u.path == "/api/schema":
+                from flysim.sim.protocol import PROTOCOLS
                 return self._json({"schema": SCHEMA, "apple_norms": APPLE_NORMS,
                                    "region_names": REGION_NAMES, "region_colors": REGION_COLORS,
-                                   "frame_dt": FRAME_DT})
-            if u.path == "/api/state":
-                return self._json({"running": bool(sim and not sim.stop_flag and not sim.error),
-                                   "status": sim.status if sim else "не запущено",
-                                   "error": sim.error if sim else None,
-                                   "config": sim.cfg if sim else defaults(),
-                                   "manifest": sim.manifest() if sim and sim.world.flies else None})
-            if u.path.startswith("/api/brain/"):
-                return self._json(brain_static(u.path.rsplit("/", 1)[1]))
-            if u.path == "/api/frames":
-                if not sim:
-                    return self._json({"frames": []})
-                since = int(q.get("since", ["0"])[0])
-                with sim.lock:
-                    base = sim.frames[0]["i"] if sim.frames else 0
-                    out = sim.frames[max(0, since - base):][:30]
-                return self._json({"frames": out})
-            if u.path == "/api/runs":
+                                   "frame_dt": FRAME_DT, "defaults": defaults(),
+                                   "protocols": {k: {"hypothesis": v["hypothesis"], "groups": list(v["groups"]),
+                                                     "reference": v["reference"]} for k, v in PROTOCOLS.items()}})
+            if u.path == "/api/sims":
+                out = []
+                for rid, sim in reversed(list(app.sims.items())):
+                    w = sim.world
+                    out.append({"run_id": rid, "title": sim.title, "status": sim.status,
+                                "running": not sim.stop_flag, "error": bool(sim.error),
+                                "kind": "experiment" if isinstance(sim, ExperimentRun) else "free",
+                                "flies": len(w.flies) if w else 0,
+                                "clock_h": round(w.clock_h, 2) if w else 0,
+                                "events": len(sim.log.events) if sim.log else 0})
                 from flysim.sim.chronicle import list_runs
-                return self._json({"current": sim.run_id if sim else None, "runs": list_runs()})
-            if u.path.startswith("/api/run/"):
-                parts = u.path.split("/")      # /api/run/<id>/<what>
-                rid, what = parts[3], parts[4] if len(parts) > 4 else "info"
-                src = sim.chron if (sim and rid == sim.run_id) else None
+                live = set(app.sims)
+                return self._json({"sims": out, "saved": [r for r in list_runs() if r["run_id"] not in live][:50]})
+            if u.path.startswith("/api/brain/"):
+                return self._json(brain_static(parts[-1]))
+            if len(parts) >= 4 and parts[:2] == ["api", "sim"]:
+                sim = app.get(parts[2])
+                if sim is None:
+                    return self._json({"error": "нет такого наблюдения"}, 404)
+                what = parts[3]
+                if what == "state":
+                    man = None
+                    try:
+                        man = sim.manifest() if isinstance(sim, Simulation) and sim.world.flies else None
+                    except Exception:
+                        pass
+                    return self._json({"run_id": parts[2], "title": sim.title, "status": sim.status,
+                                       "running": not sim.stop_flag, "error": sim.error,
+                                       "kind": "experiment" if isinstance(sim, ExperimentRun) else "free",
+                                       "config": getattr(sim, "cfg", None), "manifest": man})
+                if what == "frames":
+                    since = int(q.get("since", ["0"])[0])
+                    if isinstance(sim, Simulation):
+                        with sim.lock:
+                            base = sim.frames[0]["i"] if sim.frames else 0
+                            out = sim.frames[max(0, since - base):][:30]
+                    else:
+                        ch = sim.chron
+                        out = [ch.read(i) for i in range(max(since, (ch.n - 30) if ch else 0), ch.n)] if ch else []
+                        out = [fr for fr in out if fr]
+                        if out and sim.log:
+                            out[-1]["events"] = sim.log.events[-60:]
+                    return self._json({"frames": out})
+                if what == "logs" and len(parts) == 5 and isinstance(sim, Simulation):
+                    name = parts[4]
+                    stamp = time.strftime("%Y%m%d-%H%M")
+                    if name == "all.zip":
+                        return self._send(sim.logs_zip(), "application/zip",
+                                          {"Content-Disposition": f'attachment; filename="flysim-{parts[2]}.zip"'})
+                    getters = {"events.txt": sim.log.events_text, "events.jsonl": sim.log.events_jsonl,
+                               "timeseries.csv": sim.log.timeseries_csv, "apple.csv": sim.log.apple_csv}
+                    if name in getters:
+                        return self._send(getters[name](), "text/plain; charset=utf-8",
+                                          {"Content-Disposition": f'attachment; filename="{stamp}-{name}"'})
+            if len(parts) >= 4 and parts[:2] == ["api", "run"]:
+                rid, what = parts[2], parts[3]
+                src, events, live = _source(app, rid)
                 if src is None:
-                    from flysim.sim.chronicle import RUNS, SavedRun
-                    if not (RUNS / rid / "frames.jsonl").exists():
-                        self.send_response(404)
-                        self.end_headers()
-                        return
-                    src = SavedRun(RUNS / rid)
-                    events = src.events()
-                else:
-                    events = sim.log.events
+                    return self._json({"error": "нет такого прогона"}, 404)
                 if what == "frame":
                     return self._json(src.read(int(q.get("i", ["0"])[0])) or {})
                 if what == "events":
                     mi = int(q.get("min_imp", ["1"])[0])
-                    cat = q.get("cat", [""])[0]
-                    fly = q.get("fly", [""])[0]
+                    cat, fly = q.get("cat", [""])[0], q.get("fly", [""])[0]
                     ev = [e for e in events if e.get("imp", 1) >= mi and (not cat or e.get("cat") == cat)
                           and (not fly or e.get("fly") == fly or fly in e.get("others", []))]
-                    return self._json({"events": ev[-3000:]})
+                    return self._json({"events": ev})
+                if what == "series":
+                    n = src.n
+                    step = max(1, int(q.get("every", [str(max(1, n // 1500))])[0]))
+                    rows = []
+                    for i in range(0, n, step):
+                        fr = src.read(i)
+                        if not fr:
+                            continue
+                        rows.append({"i": i, "clock_h": fr.get("clock_h"), "t": fr.get("t"),
+                                     "env": fr.get("env"),
+                                     "flies": {k: {"regions": v.get("regions"), "hunger": v.get("hunger"),
+                                                   "energy": v.get("energy"), "ppl1": v.get("rates", {}).get("ppl1"),
+                                                   "pam": v.get("rates", {}).get("pam"), "mode": v.get("mode"),
+                                                   "surface": v.get("surface"), "proboscis": v.get("proboscis"),
+                                                   "n_active": v.get("n_active")}
+                                               for k, v in fr.get("flies", {}).items()}})
+                    return self._json({"series": rows, "step": step})
+                if what == "fly" and len(parts) == 5:
+                    if live is not None and isinstance(live, Simulation):
+                        pp = live.passport(parts[4])
+                        if pp:
+                            return self._json(pp)
+                    ev = [e for e in events if e.get("fly") == parts[4] or parts[4] in e.get("others", [])]
+                    return self._json({"name": parts[4], "life": [e for e in ev if e.get("imp", 1) >= 2],
+                                       "event_counts": {}, "status": "архив"})
                 if what == "info":
                     from flysim.sim.eventlog import CATEGORY_RU
-                    cnt, flies, bio = {}, {}, {}
+                    cnt, flies = {}, {}
                     for e in events:
                         cnt[e.get("cat", "info")] = cnt.get(e.get("cat", "info"), 0) + 1
                         if e.get("fly") and e["fly"] != "мир":
                             flies[e["fly"]] = e.get("sex", "")
-                            if e.get("imp", 1) >= 2:
-                                bio.setdefault(e["fly"], []).append(e)
-                    first = src.read(0) or {}
-                    last = src.read(src.n - 1) or {}
+                    first, last = src.read(0) or {}, src.read(src.n - 1) or {}
                     return self._json({"run_id": rid, "n_frames": src.n, "counts": cnt,
                                        "category_names": CATEGORY_RU, "flies": flies,
-                                       "biographies": {k: v[-80:] for k, v in bio.items()},
                                        "clock_h": [first.get("clock_h", 0), last.get("clock_h", 0)],
-                                       "live": bool(sim and rid == sim.run_id and not sim.stop_flag)})
-            if u.path.startswith("/api/logs/") and sim:
-                name = u.path.rsplit("/", 1)[1]
-                stamp = time.strftime("%Y%m%d-%H%M")
-                if name == "all.zip":
-                    return self._send(sim.logs_zip(), "application/zip",
-                                      {"Content-Disposition": f'attachment; filename="flysim-logs-{stamp}.zip"'})
-                getters = {"events.txt": sim.log.events_text, "events.jsonl": sim.log.events_jsonl,
-                           "timeseries.csv": sim.log.timeseries_csv, "apple.csv": sim.log.apple_csv}
-                if name in getters:
-                    return self._send(getters[name](), "text/plain; charset=utf-8",
-                                      {"Content-Disposition": f'attachment; filename="{stamp}-{name}"'})
-            self.send_response(404)
-            self.end_headers()
+                                       "live": bool(live is not None and not live.stop_flag)})
+            return self._json({"error": "не найдено"}, 404)
 
     return H
 

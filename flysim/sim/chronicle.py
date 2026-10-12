@@ -30,6 +30,35 @@ def _b64(a):
     return base64.b64encode(np.ascontiguousarray(a).tobytes()).decode()
 
 
+_REGION_CACHE = {}
+
+
+def region_tools(fly):
+    """Per-neuron region id and per-neuron synapse counts into each region (for flows)."""
+    key = getattr(fly, "dataset", fly.cfg.sex)
+    if key not in _REGION_CACHE:
+        from flysim.viz.export import _regions
+        reg = _regions(fly.ann).astype(np.int64)
+        con = fly.brain.con
+        R = int(reg.max()) + 1 if len(reg) else 1
+        pre = np.repeat(np.arange(con.n), np.diff(con.indptr))
+        out = np.zeros((con.n, R), np.float32)
+        np.add.at(out, (pre, reg[con.post]), np.abs(con.syn).astype(np.float32))
+        _REGION_CACHE[key] = (reg, out, R)
+    return _REGION_CACHE[key]
+
+
+def region_stats(fly, counts):
+    """Spikes per brain region and region->region signal flow (spikes x synapses) this frame."""
+    reg, out, R = region_tools(fly)
+    nz = np.flatnonzero(counts)
+    act = np.bincount(reg[nz], weights=counts[nz], minlength=R)
+    flow = np.zeros((R, R))
+    if len(nz):
+        np.add.at(flow, reg[nz], out[nz] * counts[nz, None])
+    return act.round(1).tolist(), (flow / 1000.0).round(2).tolist()
+
+
 def make_frame(world, t_session, counts: dict, log, status: str = "", index: int = 0) -> dict:
     """Snapshot of the whole world + every fly (+ sparse whole-brain spikes)."""
     from flysim.sim.provenance import mechanism_mode
@@ -72,6 +101,11 @@ def make_frame(world, t_session, counts: dict, log, status: str = "", index: int
             "dataset": getattr(f, "dataset_name", f.cfg.sex), "mode_mech": mechanism_mode(f.cfg, len(getattr(f, "noci_idx", [])) > 0),
             "idx": _b64(nz.astype(np.uint32)), "val": _b64(np.minimum(c[nz], 255).astype(np.uint8)),
         }
+        act, flow = region_stats(f, c)
+        fr["flies"][f.cfg.name]["regions"] = act
+        fr["flies"][f.cfg.name]["flow"] = flow
+        fr["flies"][f.cfg.name]["uid"] = getattr(f, "uid", "")
+        fr["flies"][f.cfg.name]["ds"] = getattr(f, "dataset", f.cfg.sex)
         fr["flies"][f.cfg.name]["mode"] = b.mode
     fr["events"] = log.events[-60:] if log is not None else []
     return fr

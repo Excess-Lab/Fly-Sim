@@ -37,6 +37,7 @@ class World:
     seasonal: bool = False      # temperate annual temperature cycle (A93)
     base_temp_c: float = 25.0
     max_apples: int = 8         # performance cap for fruit produced by trees
+    wind: tuple = (0.0, 0.0)    # m/s (x, y), uniform
     corpses: list = field(default_factory=list)   # dead flies stay where they died
     deaths: list = field(default_factory=list)    # (clock_h, name, sex, cause, pos)
 
@@ -70,6 +71,12 @@ class World:
     def nearest_apple(self, x):
         return min(self.apples, key=lambda a: np.linalg.norm(np.asarray(x) - a.center) - a.p.radius_mm)
 
+    def soil_args(self):
+        pl = self.plants
+        if pl is None or not pl.soil:
+            return {}
+        return {"soil_area_m2": (2 * self.arena / 1000.0) ** 2, "soil_moist": bool(pl.moist)}
+
     def sync_air(self):
         if self.atm is not None:
             self.o2_pct, self.co2_ppm = self.atm.o2_pct, self.atm.co2_ppm
@@ -93,7 +100,7 @@ class World:
                 self._tree_fruit()
             self.clock_h += h
             if self.atm is not None:
-                self.atm.step(h, self.apples, len(self.flies), self.ambient_c)
+                self.atm.step(h, self.apples, len(self.flies), self.ambient_c, **self.soil_args())
             left -= h
         self.sync_air()
 
@@ -141,9 +148,18 @@ class World:
         # ASSUMPTION(A42b): CO2 in odour units of 1 = 1 % CO2 (Gr21a/Gr63a neurons respond from
         # ~0.1 % and drive avoidance at 0.1-1 %; Suh et al. 2004; Jones et al. 2007)
         out = {"CO2": self.co2_ppm / 1e4}
+        U = np.array([self.wind[0], self.wind[1], 0.0]) * 1000.0    # mm/s
+        u = np.linalg.norm(U)
+        # ASSUMPTION(A96): steady advection-diffusion from a source in uniform wind,
+        # c = c_s R/r * exp(-u (r - r.e_u) / (2K)), K = molecular 10 mm^2/s + turbulent u * 10 mm (eddy scale)
+        K = 10.0 + 10.0 * u
         for a in self.apples:
             ac, ar = a.center, a.p.radius_mm
-            f = ar / max(np.linalg.norm(x - ac), ar)
+            d = x - ac
+            r = max(np.linalg.norm(d), ar)
+            f = ar / r
+            if u > 0:
+                f *= np.exp(-u * (r - d @ (U / u)) / (2 * K))
             for k, v in a.odor_sources().items():
                 out[k] = out.get(k, 0.0) + self.odor_scale * v * f
         for pos, comp, rad in self.extra_odor_sources:
@@ -250,6 +266,7 @@ class World:
         for f in self.flies:
             f.step(self, dt)
         if self.arena_phys is not None:
+            self.arena_phys.wind = self.wind
             self.arena_phys.advance(dt)
             for f in self.flies:
                 if f.cfg.body == "nmf":
@@ -257,6 +274,6 @@ class World:
         self.interactions(dt)
         self.bury_dead()
         if self.atm is not None:
-            self.atm.step(dt / 3600, self.apples, len(self.flies), self.ambient_c)
+            self.atm.step(dt / 3600, self.apples, len(self.flies), self.ambient_c, **self.soil_args())
             self.sync_air()
         self.clock_h += dt / 3600

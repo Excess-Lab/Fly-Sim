@@ -25,7 +25,8 @@ class Atmosphere:
     outside_co2_ppm: float = 420.0
     outside_o2_pct: float = 20.9
 
-    def step(self, hours: float, apple, n_flies: int, temp_c: float = 25.0):
+    def step(self, hours: float, apple, n_flies: int, temp_c: float = 25.0,
+             soil_area_m2: float = 0.0, soil_moist: bool = False):
         """Advance by `hours` (sub-stepped). Uses the apple's current microbial rates."""
         apples = apple if isinstance(apple, (list, tuple)) else [apple]
         vm = MOLAR_L * (273.15 + temp_c) / 298.15
@@ -40,8 +41,12 @@ class Atmosphere:
                 mold_g_h += ap.p.q_mold_sugar * s.mold * mass_g / 100.0      # sugar respired
                 acet_g_h += ap.p.q_eth * s.aab * mass_g / 100.0 * \
                     (self.o2_pct / (self.o2_pct + ap.p.k_o2_pct))           # ethanol oxidised
-            co2_mol_h = ferm_g_h / 180.16 * 2 + mold_g_h / 180.16 * 6 + n_flies * 4e-6 / vm
-            o2_mol_h = mold_g_h / 180.16 * 6 + acet_g_h / 46.07 + n_flies * 4e-6 / vm
+            # soil respiration (roots absent; microbes): ~4 umol CO2 m-2 s-1 at 25 C in moist soil,
+            # Q10 = 2, dry soil ~0.3x; RQ ~1 (Raich & Schlesinger 1992; Lloyd & Taylor 1994) A95
+            soil_mol_h = soil_area_m2 * 4e-6 * 3600 * 2.0 ** ((temp_c - 25.0) / 10.0) * (1.0 if soil_moist else 0.3)
+            soil_mol_h *= self.o2_pct / (self.o2_pct + 2.0)
+            co2_mol_h = ferm_g_h / 180.16 * 2 + mold_g_h / 180.16 * 6 + n_flies * 4e-6 / vm + soil_mol_h
+            o2_mol_h = mold_g_h / 180.16 * 6 + acet_g_h / 46.07 + n_flies * 4e-6 / vm + soil_mol_h
             # moles in the container at 1 atm; excess gas vents (mixture leaves proportionally)
             n_tot = self.volume_l / vm
             x_co2, x_o2 = self.co2_ppm * 1e-6, self.o2_pct / 100.0

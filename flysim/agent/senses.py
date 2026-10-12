@@ -268,6 +268,32 @@ class Hearing:
         return np.full(len(self.idx), 2.0 + 150.0 * song_amp)
 
 
+class WindSense:
+    """Johnston's organ wind-sensitive neurons (JO-C/E, 'wind_gravity'); antennal deflection is
+    larger on the side facing the wind (Yorozu et al. 2009; Suver et al. 2019).
+    ASSUMPTION(A97): rate = 5 + 60 Hz per m/s, x (0.5 + 0.5 * cos(angle to that antenna))."""
+
+    def __init__(self, ann: pd.DataFrame):
+        sub = pd.Series(ann.cell_sub_class.to_numpy())
+        t = pd.Series(ann.type.to_numpy())
+        m = (sub == "wind_gravity") | t.str.match(r"^JO-(C|E)").to_numpy()
+        self.idx = np.flatnonzero(m.to_numpy() if hasattr(m, "to_numpy") else m)
+        self.side = ann.side.to_numpy()[self.idx]
+
+    def rates(self, wind_xy, yaw) -> np.ndarray:
+        w = np.asarray(wind_xy, float)
+        sp = float(np.linalg.norm(w))
+        out = np.full(len(self.idx), 5.0)
+        if sp <= 0:
+            return out
+        # direction the wind comes FROM, relative to the heading (+ = from the left)
+        frm = np.arctan2(-w[1], -w[0]) - yaw
+        for side, sgn in (("left", 1.0), ("right", -1.0)):
+            m = self.side == side
+            out[m] = 5.0 + 60.0 * sp * (0.5 + 0.5 * np.cos(frm - sgn * np.pi / 4))
+        return out
+
+
 class Interoception:
     """Internal state enters through neurons that sense it.
     IPCs depolarise to glucose (Kreneisz et al. 2010); ASSUMPTION(A56): rate 5..40 Hz with

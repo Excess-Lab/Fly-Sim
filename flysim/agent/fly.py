@@ -7,7 +7,8 @@ import pandas as pd
 from flysim.agent.body import FLY_RADIUS, Body
 from flysim.agent.metabolism import Metabolism
 from flysim.agent.motor import MotorReadout
-from flysim.agent.senses import Gustation, Hearing, Interoception, Olfaction, Thermo, Vision
+from flysim.agent.senses import (Gustation, Hearing, Interoception, Olfaction, Thermo, Vision,
+                                 WindSense)
 from flysim.brain.factory import load, make_brain
 
 
@@ -60,6 +61,8 @@ class Fly:
         self.vision = Vision(con, ann, cfg.sex)
         self.hearing = Hearing(ann)
         self.intero = Interoception(ann)
+        self.windsense = WindSense(ann)
+        # JO neurons used for hearing (JO-B) and wind (JO-C/E) are disjoint
         # contact pheromone neurons (male: ppk23 receptor class) ASSUMPTION(A57)
         rec = ann["receptor"] if "receptor" in ann.columns else pd.Series([""] * len(ann))
         self.ppk23 = np.flatnonzero((rec == "putative_ppk23").to_numpy())
@@ -89,10 +92,10 @@ class Fly:
         self.stim_idx = np.concatenate([
             self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
             self.intero.idx, self.ppk23, self.ppl1, self.pam, self.noci_idx,
-            self.prop_idx]).astype(np.int64)
+            self.prop_idx, self.windsense.idx]).astype(np.int64)
         self.brain.set_poisson_targets(np.concatenate([
             self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
-            self.intero.idx, self.ppk23, self.noci_idx, self.prop_idx]))
+            self.intero.idx, self.ppk23, self.noci_idx, self.prop_idx, self.windsense.idx]))
         self.motor = MotorReadout(ann)
         from flysim.agent.physics import BodyTemperature
         self.thermal = BodyTemperature(25.0)
@@ -216,8 +219,12 @@ class Fly:
                 if sch.legs[leg] == "amputated":
                     r_prop[off:off + len(ids)] = 0.0
                 off += len(ids)
+        r_wind = self.windsense.rates(world.wind, self.body.yaw)
+        for sd in ("left", "right"):
+            if sch.antenna[sd] != "intact":
+                r_wind[self.windsense.side == sd] = 0.0
         return np.concatenate([r_olf, r_gust, r_th, r_vis, r_hear, r_int, r_ppk, r_ppl1, r_pam,
-                               r_noci, r_prop])
+                               r_noci, r_prop, r_wind])
 
     def step(self, world, dt: float):
         rates = self.sense(world)

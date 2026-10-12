@@ -297,7 +297,8 @@ class NMFBody:
             dl, dr = sch.wing_damage["left"], sch.wing_damage["right"]
             amp *= float(np.sqrt(max(0.0, 1.0 - 0.5 * (dl + dr))))
             yaw += 2.0 * (dr - dl) * dt
-        pos = self.aero.step(pos, yaw, amp, 0.0, dt)
+        wind = np.array([*getattr(self.arena, "wind", (0.0, 0.0)), 0.0]) * 1000.0
+        pos = self.aero.step(pos, yaw, amp, 0.0, dt, wind=wind)
         for k in range(2):
             if abs(pos[k]) > arena:   # wall: inelastic bounce
                 pos[k] = np.sign(pos[k]) * arena
