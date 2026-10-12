@@ -2,6 +2,8 @@
 
 Columns: type, super_class, cell_class, cell_sub_class, side, nt, x, y, z (soma or root point, nm)
 """
+import os
+
 import numpy as np
 import pandas as pd
 
@@ -87,6 +89,8 @@ def malecns_annotations(con: Connectome) -> pd.DataFrame:
         "synonyms": a.synonyms.fillna("").to_numpy(),
         "receptor": a.receptorType.fillna("").to_numpy(),
         "flywire_type": a.flywireType.fillna("").to_numpy(),
+        "leg": a.subclass.where(a.subclass.isin(["fl", "ml", "hl"]), "").fillna("").to_numpy(),
+        "entry_nerve": a.entryNerve.fillna("").to_numpy(),
         "x": xyz[:, 0], "y": xyz[:, 1], "z": xyz[:, 2],
     })
 
@@ -97,6 +101,53 @@ SENSORY_NT = [
     # olfactory, gustatory, thermo/hygro, Johnston's organ and mechanosensory neurons are cholinergic
     (r"^(ORN_|TRN_|HRN_|JO-|LB\d|LgAG|LgLG|PhG|claw_tpGRN|dorsal_tpGRN|BM_|WG\d|LB$)", "acetylcholine"),
 ]
+
+
+_VERIFIED = None
+
+
+def banc_verified_by_type() -> pd.Series:
+    """Experimentally verified transmitter per cell type, from BANC (65k neurons, 3.4k types).
+    ASSUMPTION(A03d): verification applies to the cell type across reconstructions."""
+    global _VERIFIED
+    if _VERIFIED is None:
+        from flysim.data.banc import META
+        if not META.exists():
+            _VERIFIED = pd.Series(dtype=object)
+            return _VERIFIED
+        import pyarrow.feather as feather
+        m = feather.read_table(META, columns=["cell_type", "fafb_cell_type",
+                                              "neurotransmitter_verified"]).to_pandas()
+        m = m[m.neurotransmitter_verified.notna()]
+
+        def first_fast(x):
+            names = [y.strip() for y in str(x).lower().split(",")]
+            for cand in ["gaba", "glutamate", "histamine", "acetylcholine", "dopamine",
+                         "serotonin", "octopamine", "tyramine"]:
+                if cand in names:
+                    return cand
+            return ""
+        m["nt"] = m.neurotransmitter_verified.map(first_fast)
+        m["t"] = m.fafb_cell_type.fillna(m.cell_type)
+        _VERIFIED = m[m.nt != ""].groupby("t").nt.agg(lambda x: x.value_counts().index[0])
+    return _VERIFIED
+
+
+USE_VERIFIED_NT = os.environ.get("FLYSIM_VERIFIED_NT", "0") == "1"
+
+
+def apply_verified_nt(ann: pd.DataFrame, key="type") -> pd.DataFrame:
+    """Off by default: with verified transmitters the AL becomes self-sustaining in all three
+    connectomes (KNOWN_ISSUES #5). Enable with FLYSIM_VERIFIED_NT=1."""
+    if not USE_VERIFIED_NT:
+        return ann
+    ver = banc_verified_by_type()
+    if len(ver) == 0:
+        return ann
+    k = ann[key].astype(str).str.split(",").str[0].str.strip()
+    v = k.map(ver)
+    ann["nt"] = np.where(v.notna(), v, ann.nt).astype(object)
+    return ann
 
 
 def apply_sensory_nt(ann: pd.DataFrame) -> pd.DataFrame:
@@ -132,10 +183,22 @@ def _male_nt(male: pd.DataFrame) -> np.ndarray:
 
 
 def load(sex: str):
-    """Return (Connectome, annotations) for 'female' (FlyWire brain) or 'male' (Male CNS)."""
+    """Return (Connectome, annotations): 'female' (FlyWire brain), 'female_banc' (BANC brain +
+    nerve cord) or 'male' (Male CNS)."""
+    if sex == "female_banc":
+        from flysim.data import banc
+        con = banc.build()
+        fcon = flywire.build()
+        fann = flywire_annotations(fcon)
+        fw_nt = pd.Series(fann.nt.to_numpy(), index=fcon.ids)
+        fw_type_nt = fann[fann.type != ""].groupby("type").nt.agg(lambda x: x.value_counts().index[0])
+        mcon, mann = load("male")
+        m_type_nt = mann[mann.type != ""].groupby("type").nt.agg(lambda x: x.value_counts().index[0])
+        ann = banc.annotations(con, flywire_nt=fw_nt, flywire_type_nt=fw_type_nt, male_type_nt=m_type_nt)
+        return con, apply_sensory_nt(ann)
     if sex == "female":
         con = flywire.build()
-        return con, apply_sensory_nt(flywire_annotations(con))
+        return con, apply_sensory_nt(apply_verified_nt(flywire_annotations(con)))
     if sex == "male":
         con = malecns.build()
         ann = malecns_annotations(con)
@@ -145,6 +208,7 @@ def load(sex: str):
         else:
             ann["nt"] = _male_nt(ann)
             np.save(cache, ann.nt.to_numpy().astype(object), allow_pickle=True)
+        ann = apply_verified_nt(ann, key="flywire_type")
         return con, apply_sensory_nt(ann)
     raise ValueError(sex)
 

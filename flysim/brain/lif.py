@@ -39,6 +39,11 @@ class LIFParams:
     # stimulation: Poisson input driving v directly (Shiu et al. 2024)
     f_poi: float = 250.0
     dt: float = 0.1        # ms
+    # spike-frequency adaptation (off by default = exact Shiu et al. 2024 model).
+    # ASSUMPTION(A04b): fly neurons adapt (Nagel & Wilson 2011; Wilson 2013 review):
+    # each spike adds b_w mV to an adaptation current that decays with tau_w.
+    b_w: float = 0.0       # mV per spike
+    tau_w: float = 200.0   # ms
 
 
 N_CHUNKS = 64
@@ -46,7 +51,7 @@ N_CHUNKS = 64
 
 @njit(cache=True, parallel=True, nogil=True)
 def _update_chunks(n, slot, v, g, rfc_left, frozen, ring, gain, decay_v, decay_g, coef_a,
-                   v_0, v_th, spk_buf, spk_n):
+                   v_0, v_th, spk_buf, spk_n, wad, decay_w, coef_w):
     """Fused, parallel: integrate -> threshold -> deliver due synaptic input, per neuron.
     Delivered input changes g only, so it cannot affect this step's threshold (as in Brian2)."""
     csize = (n + N_CHUNKS - 1) // N_CHUNKS
@@ -61,10 +66,13 @@ def _update_chunks(n, slot, v, g, rfc_left, frozen, ring, gain, decay_v, decay_g
             else:
                 frozen[i] = 0
                 gi = g[i]
-                if gi != 0.0 or v[i] != v_0:
+                wi = wad[i]
+                if gi != 0.0 or v[i] != v_0 or wi != 0.0:
                     a = gi * coef_a
-                    v[i] = v_0 + (v[i] - v_0 - a) * decay_v + a * decay_g
+                    aw = -wi * coef_w
+                    v[i] = v_0 + (v[i] - v_0 - a - aw) * decay_v + a * decay_g + aw * decay_w
                     g[i] = gi * decay_g
+                    wad[i] = wi * decay_w
                 if v[i] > v_th:
                     spk_buf[lo + m] = i
                     m += 1
@@ -123,7 +131,7 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
           stim_idx, stim_p, stim_w, kick_step, kick_idx, rng_state,
           counts, rec_mask, rec_out,
           pl_on, x_tr, da_tr, dan_ptr, dan_m, dan_a, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, pl_c,
-          kc_new, da_new):
+          kc_new, da_new, wad, decay_w, coef_w, b_w):
     n = v.shape[0]
     D = ring.shape[0]
     csize = (n + N_CHUNKS - 1) // N_CHUNKS
@@ -136,7 +144,7 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
         step = t0 + s
         slot = step % D
         _update_chunks(n, slot, v, g, rfc_left, frozen, ring, gain, decay_v, decay_g, coef_a,
-                       v_0, v_th, spk_buf, spk_n)
+                       v_0, v_th, spk_buf, spk_n, wad, decay_w, coef_w)
         # Poisson drive and scheduled kicks act on v after the threshold (Brian2 'synapses' slot)
         for j in range(stim_idx.shape[0]):
             if stim_p[j] > 0.0 and np.random.random() < stim_p[j]:
@@ -151,6 +159,7 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
                 i = spk_buf[c * csize + q]
                 v[i] = v_rst
                 g[i] = 0.0
+                wad[i] += b_w
                 rfc_left[i] = rfc_len[i]
                 counts[i] += 1
                 r = rec_mask[i]
@@ -188,6 +197,8 @@ class Brain:
         self._decay_v = np.exp(-p.dt / p.t_mbr)
         self._decay_g = np.exp(-p.dt / p.tau)
         self._coef_a = p.tau / (p.tau - p.t_mbr)
+        self._decay_w = np.exp(-p.dt / p.tau_w)
+        self._coef_w = p.tau_w / (p.tau_w - p.t_mbr)
         self._rng = np.random.default_rng(self.seed)
         self.disable_plasticity()
         self.reset()
@@ -212,13 +223,19 @@ class Brain:
         """
         nt = ann.nt.str.lower().to_numpy()
         sign = np.where(np.isin(nt, ["gaba", "glutamate", "histamine"]), -1.0, 1.0)
-        mono = np.isin(nt, ["dopamine", "serotonin", "octopamine"])
+        mono = np.isin(nt, ["dopamine", "serotonin", "octopamine", "tyramine"])
         sensory = ann.super_class.str.contains("sensory").to_numpy()
         kc = ann.type.str.match("^KC").to_numpy()
         pre = np.repeat(np.arange(self.con.n), np.diff(self.con.indptr))
         post = self.con.post
         self.w = (np.abs(self.con.syn) * sign[pre] * self.p.w_syn).astype(np.float32)
-        drop = sensory[post] | (kc[pre] & kc[post]) | mono[pre]
+        # unannotated fragments / glia / neurons without any transmitter call carry no
+        # interpretable signal: excluded (A08b)
+        unknown = ~np.isin(nt, ["gaba", "glutamate", "histamine", "acetylcholine", "dopamine",
+                                "serotonin", "octopamine", "tyramine"])
+        nonneuron = ann.super_class.isin(["glia", "not_a_neuron", "trachea", ""]).to_numpy()
+        silent = unknown | nonneuron
+        drop = sensory[post] | (kc[pre] & kc[post]) | mono[pre] | silent[pre] | silent[post]
         self.w[drop] = 0.0
         self.n_dropped = int(drop.sum())
         return self.n_dropped
@@ -314,6 +331,7 @@ class Brain:
         # ring slot k holds input arriving at steps == k (mod D); D = delay+1 so that a spike at
         # step s is delivered at step s + delay
         self.ring = np.zeros((self.delay_steps + 1, n), dtype=np.float32)
+        self.wad = np.zeros(n, dtype=np.float64)
         self.t_step = 0
         if seed is not None:
             self._rng = np.random.default_rng(seed)
@@ -348,7 +366,7 @@ class Brain:
               int(self._rng.integers(2**31 - 1)), counts, rec_mask, rec_out,
               self.pl_on, self.x_tr, self.da_tr, self.dan_ptr, self.dan_m, self.dan_a,
               self.pe_edge, self.pe_pre, self.pe_m, self.pe_w0, self.kc_idx, self.pl_c,
-              self.kc_new, self.da_new)
+              self.kc_new, self.da_new, self.wad, self._decay_w, self._coef_w, p.b_w)
         self.t_step += n_steps
         return counts, rec_out
 
