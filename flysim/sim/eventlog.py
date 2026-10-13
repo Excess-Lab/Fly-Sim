@@ -244,8 +244,8 @@ class EventLog:
                     E("encounter", f"стычка с {o.cfg.name} (близко, P1 возбуждён)", others=[o.cfg.name])
                 setattr(f, key + "_enc", close)
         if (p["mode"], p["surface"]) != (s["mode"], s["surface"]):
-            what = {("walk", "apple"): "на яблоке", ("walk", "floor"): "на полу", ("fly", "floor"): "в полёте",
-                    ("fly", "apple"): "в полёте"}[(s["mode"], s["surface"])]
+            what = "в полёте" if s["mode"] == "fly" else {
+                "apple": "на яблоке", "floor": "на полу", "wall": "на стенке"}.get(s["surface"], str(s["surface"]))
             E("location", f"теперь {what}", mode=s["mode"], surface=s["surface"])
         if s["proboscis"] and not p["proboscis"]:
             if s["surface"] == "apple":

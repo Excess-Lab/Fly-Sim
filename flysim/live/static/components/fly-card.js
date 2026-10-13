@@ -7,7 +7,7 @@ import { icons } from '../lib/icons.js';
 
 const LEG = { lf: 'Л перед.', lm: 'Л сред.', lh: 'Л задн.', rf: 'П перед.', rm: 'П сред.', rh: 'П задн.' };
 const LEG_ST = { intact: 'цела', paralyzed: 'парализ.', amputated: 'нет' };
-const WHERE = { apple: 'яблоко', floor: 'пол', air: 'воздух' };
+const WHERE = { apple: 'яблоко', floor: 'пол', wall: 'стенка', air: 'воздух' };
 
 export function regionBar(f) {
   if (!f?.regions) return nothing;
