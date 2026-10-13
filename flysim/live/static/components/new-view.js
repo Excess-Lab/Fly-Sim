@@ -14,6 +14,7 @@ const GROUP_TITLES = {
   injuries: ['Травмы и схема тела', 'задаёт экспериментатор'],
   hot_zone: ['Неприятный стимул', 'горячая зона на полу'],
   science: ['Контроли', 'научные режимы и обходы'],
+  transplant: ['Пересадка в другое тело', 'мозг получает тело другой мухи'],
   run: ['Расчёт и лимиты', 'подробные отрезки, перемотка, остановка'],
 };
 // fields that only matter for one climate
@@ -21,11 +22,17 @@ const CLIMATE_ONLY = { wind_speed: 'container', wind_dir_deg: 'container', start
 const DISPLAY = { start_hour: v => fmtHM(v) };
 
 // form state survives navigation inside the page
-let CFG = null, MODE = 'free', TITLE = '', EXP = null;
+let CFG = null, MODE = 'free', TITLE = '', EXP = null, PRESET = null;
+const merge = (base, patch) => {
+  const out = clone(base);
+  for (const [g, items] of Object.entries(patch || {}))
+    out[g] = (items && typeof items === 'object' && !Array.isArray(items)) ? { ...(out[g] || {}), ...clone(items) } : clone(items);
+  return out;
+};
 const clone = o => JSON.parse(JSON.stringify(o));
 
 class FsNew extends LitElement {
-  static properties = { cfg: { state: true }, mode: { state: true }, exp: { state: true }, starting: { state: true } };
+  static properties = { cfg: { state: true }, mode: { state: true }, exp: { state: true }, starting: { state: true }, preset: { state: true } };
   static styles = [shared, css`
     .modes { margin-bottom: var(--sp-5); display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
     .modes .hint { color: var(--text-3); font-size: var(--fs-s); }
@@ -41,6 +48,18 @@ class FsNew extends LitElement {
     .exp .card-b { display: grid; gap: var(--sp-4); padding: var(--sp-4); }
     .exp label.fl { display: grid; gap: var(--sp-2); font-weight: 500; }
     .note { color: var(--text-3); font-size: var(--fs-xs); }
+    .presets { margin-bottom: var(--sp-5); display: grid; gap: var(--sp-3); }
+    .presets h2 { font-size: var(--fs-s); color: var(--text-2); font-weight: 600; margin: 0; }
+    .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-2); }
+    .preset { text-align: left; border: 1px solid var(--border); background: var(--surface); border-radius: var(--r-m);
+      padding: var(--sp-3); cursor: pointer; display: grid; gap: 4px; font: inherit; color: inherit; }
+    .preset:hover { border-color: var(--accent); }
+    .preset.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+    .preset .pt { font-weight: 600; }
+    .preset .pd { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.45; }
+    .tag { font-size: var(--fs-xs); border-radius: 999px; padding: 1px 8px; justify-self: start; }
+    .tag.objective { background: color-mix(in srgb, var(--ok, #16a34a) 15%, transparent); color: var(--ok, #16a34a); }
+    .tag.directed { background: color-mix(in srgb, var(--warn, #d97706) 15%, transparent); color: var(--warn, #d97706); }
     .hidden-note { font-size: var(--fs-xs); color: var(--text-3); padding: var(--sp-2) 0 var(--sp-3); }
     @media (max-width: 560px) { .head-actions { width: 100%; } .head-actions .input { flex: 1; width: auto; } }
   `];
@@ -50,7 +69,7 @@ class FsNew extends LitElement {
     if (!CFG) CFG = clone(SCHEMA.defaults);
     const protos = Object.keys(SCHEMA.protocols || {});
     if (!EXP) EXP = { protocol: protos[0], group: SCHEMA.protocols?.[protos[0]]?.groups?.[0], seed: 100 };
-    this.cfg = CFG; this.mode = MODE; this.exp = EXP; this.starting = false;
+    this.cfg = CFG; this.mode = MODE; this.exp = EXP; this.starting = false; this.preset = PRESET;
   }
 
   _set(g, k, v) {
@@ -61,7 +80,24 @@ class FsNew extends LitElement {
     if (patch.protocol) this.exp = EXP = { ...EXP, group: SCHEMA.protocols[patch.protocol].groups[0] };
   }
   _mode(m) { this.mode = MODE = m; }
-  _reset() { this.cfg = CFG = clone(SCHEMA.defaults); toast('настройки сброшены'); }
+  _reset() { this.cfg = CFG = clone(SCHEMA.defaults); this.preset = PRESET = null; TITLE = ''; toast('настройки сброшены'); }
+  _applyPreset(id) {
+    const pr = SCHEMA.presets[id];
+    this.cfg = CFG = merge(SCHEMA.defaults, pr.cfg);
+    TITLE = pr.title; this.preset = PRESET = id; this.mode = MODE = 'free';
+    toast(`условия «${pr.title}» подставлены — можно поправить и запустить`);
+  }
+  _presets() {
+    const P = SCHEMA.presets || {};
+    const row = kind => Object.entries(P).filter(([, p]) => p.kind === kind).map(([id, p]) => html`
+      <button class="preset ${this.preset === id ? 'on' : ''}" @click=${() => this._applyPreset(id)}>
+        <span class="tag ${p.kind}">${p.kind === 'objective' ? 'научно объективно' : 'направленный опыт'}</span>
+        <span class="pt">${p.title}</span><span class="pd">${p.desc}</span></button>`);
+    return html`<section class="presets">
+      <h2>Заготовки — нажмите, чтобы подставить условия</h2>
+      <div class="pgrid">${row('objective')}</div>
+      <div class="pgrid">${row('directed')}</div></section>`;
+  }
 
   async _start() {
     this.starting = true;
@@ -144,7 +180,7 @@ class FsNew extends LitElement {
         <span class="hint">${this.mode === 'free' ? 'мир, яблоки и мухи по вашим условиям' : 'воспроизводимый протокол из научной литературы'}</span>
       </div>
       ${this.mode === 'exp' ? this._experiment()
-        : html`<div class="cols">${Object.entries(SCHEMA.schema).map(([g, items]) => this._group(g, items))}</div>`}`;
+        : html`${this._presets()}<div class="cols">${Object.entries(SCHEMA.schema).map(([g, items]) => this._group(g, items))}</div>`}`;
   }
 }
 customElements.define('fs-new', FsNew);

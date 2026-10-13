@@ -126,6 +126,14 @@ SCHEMA = {
         "spontaneous": {"label": "Спонтанная ходьба (A30)", "type": "bool", "default": True,
                         "norm": "выкл. — двигается только по командам мозга"},
     },
+    "transplant": {
+        "enabled": {"label": "Пересадка в другое тело", "type": "bool", "default": False,
+                    "norm": "в заданный момент мозг первого самца получает тело первой самки и наоборот: их место, "
+                            "позу, травмы, голод и температуру тела. Отслеживается, перестраивается ли управление "
+                            "(команда поворота мозга против реального поворота тела) — адаптация, а не «понимание»"},
+        "at_s": {"label": "Когда пересадить", "unit": "с", "min": 5, "max": 3600, "step": 5, "default": 60,
+                 "norm": "секунды подробного счёта от начала"},
+    },
     "run": {
         "session_s": {"label": "Длина подробного отрезка", "unit": "с", "min": 5, "max": 600,
                       "step": 5, "default": 60, "norm": "сколько секунд жизни считать полностью: каждый нейрон, каждая мышца, физика тела. Потом мир перематывается"},
@@ -135,10 +143,86 @@ SCHEMA = {
                        "default": 0, "norm": "0 — без лимита; симуляция остановится сама, когда мир проживёт столько"},
         "limit_compute_h": {"label": "Лимит времени счёта", "unit": "ч", "min": 0, "max": 72, "step": 0.5,
                             "default": 0, "norm": "0 — без лимита; сколько реальных часов считать"},
+        "neural_record": {"label": "Запись активности всего мозга", "type": "select",
+                          "options": {"every_frame": "постоянно (каждые 0,1 с)", "every_second": "раз в секунду и вокруг событий"},
+                          "default": "every_frame",
+                          "norm": "постоянно — каждый нейрон каждые 0,1 с: ~0,3–0,6 МБ на муху за секунду жизни"},
         "max_adults": {"label": "Предел взрослых мух", "unit": "", "min": 1, "max": 30, "step": 1,
                        "default": 4, "norm": "у каждой взрослой мухи свой полный мозг (~0.5 ГБ памяти, ~10 с счёта на 1 с жизни). "
                                              "Мухи, вылупившиеся сверх предела, только учитываются в численности, без мозга и тела. 8 ГБ: ≤4–6"},
     },
+}
+
+# Ready-made conditions for the "new observation" page. kind: objective = everything comes from the
+# connectome where the model allows it (shortcuts A24/A25 off, no fast-forward); directed = set up
+# to provoke or show something (may use fast-forward or fewer controls).
+_NOSHORT = {"us_shortcut": False, "reward_shortcut": False, "plasticity": True, "spontaneous": True}
+_ONE2ONE = {"ff_hours": 0, "session_s": 120, "limit_compute_h": 22, "neural_record": "every_frame"}
+PRESETS = {
+    "obj_life": {"kind": "objective", "title": "Объективная жизнь 1 к 1",
+                 "desc": "Самец и голодная самка у надрезанного яблока. Каждая секунда считается полностью, "
+                         "обходы A24/A25 выключены: поведение только от коннектома и тела.",
+                 "cfg": {"world": {"size_m": 0.3, "climate": "container"}, "flies": {"males": 1, "females": 1,
+                         "starved_h": 18}, "science": _NOSHORT, "run": _ONE2ONE,
+                         "apples": {"list": [{"age_days": 2, "cut": True, "radius_mm": 32, "x_mm": 0, "y_mm": 0}]}}},
+    "obj_hunger": {"kind": "objective", "title": "Голод и кормление",
+                   "desc": "Одна самка, голодала 24 ч, свежее надрезанное яблоко. Найдёт ли и будет ли есть; "
+                           "сравнение с Inagaki 2014.",
+                   "cfg": {"world": {"size_m": 0.2, "climate": "container"}, "flies": {"males": 0, "females": 1,
+                           "starved_h": 24}, "science": _NOSHORT, "run": {**_ONE2ONE, "limit_compute_h": 8},
+                           "apples": {"list": [{"age_days": 1, "cut": True, "radius_mm": 30, "x_mm": 40, "y_mm": 0}]}}},
+    "obj_heat": {"kind": "objective", "title": "Избегание горячего пола",
+                 "desc": "Одна сытая самка и зона 44 °C на полу (выше порога ноцицепторов лапок). Боль идёт по "
+                         "коннектому через VNC; сравнение с Ofstad 2011.",
+                 "cfg": {"world": {"size_m": 0.15, "climate": "container"}, "flies": {"males": 0, "females": 1,
+                         "starved_h": 0}, "science": _NOSHORT, "run": {**_ONE2ONE, "limit_compute_h": 8},
+                         "hot_zone": {"enabled": True, "temp_c": 44.0, "radius_mm": 20.0},
+                         "apples": {"list": [{"age_days": 0, "cut": False, "radius_mm": 25, "x_mm": 45, "y_mm": -45}]}}},
+    "obj_garden": {"kind": "objective", "title": "Сад: закат и ночь",
+                   "desc": "Две пары мух в саду, старт в 19:30: свет гаснет, температура падает, ветер меняется. "
+                           "Как меняется активность мозга и поведение.",
+                   "cfg": {"world": {"size_m": 0.4, "climate": "garden", "start_hour": 19.5, "garden_wind": 1.0,
+                           "soil": True, "moist": True}, "flies": {"males": 2, "females": 2, "starved_h": 12},
+                           "science": _NOSHORT, "run": _ONE2ONE}},
+    "dir_courtship": {"kind": "directed", "title": "Ухаживание",
+                      "desc": "Самец и девственная самка в маленькой арене 10 см, сытые. Ищем ориентацию, песню, "
+                              "копуляцию (Siegel & Hall 1979).",
+                      "cfg": {"world": {"size_m": 0.1, "climate": "container"}, "flies": {"males": 1, "females": 1,
+                              "starved_h": 0, "virgin": True}, "science": _NOSHORT,
+                              "run": {**_ONE2ONE, "limit_compute_h": 12},
+                              "apples": {"list": [{"age_days": 1, "cut": True, "radius_mm": 15, "x_mm": 25, "y_mm": 25}]}}},
+    "dir_fight": {"kind": "directed", "title": "Драка самцов",
+                  "desc": "Два самца, полуголодные, одно маленькое яблоко — ресурс для конкуренции (Chen 2002).",
+                  "cfg": {"world": {"size_m": 0.1, "climate": "container"}, "flies": {"males": 2, "females": 0,
+                          "starved_h": 12}, "science": _NOSHORT, "run": {**_ONE2ONE, "limit_compute_h": 12},
+                          "apples": {"list": [{"age_days": 2, "cut": True, "radius_mm": 12, "x_mm": 0, "y_mm": 0}]}}},
+    "dir_jar": {"kind": "directed", "title": "Герметичная банка",
+                "desc": "Банка 1 л без вентиляции с бродящим яблоком: CO₂ копится, O₂ падает. Перемотка 1 ч — "
+                        "видны часы жизни, но между отрезками мухи живут по формулам.",
+                "cfg": {"environment": {"volume_l": 1, "ach": 0}, "world": {"size_m": 0.1, "climate": "container"},
+                        "flies": {"males": 1, "females": 1, "starved_h": 6}, "science": _NOSHORT,
+                        "run": {"ff_hours": 1, "session_s": 60, "limit_compute_h": 22, "neural_record": "every_frame"},
+                        "apples": {"list": [{"age_days": 3, "cut": True, "radius_mm": 30, "x_mm": 0, "y_mm": 0}]}}},
+    "dir_world": {"kind": "directed", "title": "Жизнь мира на недели",
+                  "desc": "Сад с сезонами, почвой и семенами, спаренная самка и самец. Перемотка 6 ч: поколения, "
+                          "гниение, деревья. Выводов о поведении не делать — между отрезками правила.",
+                  "cfg": {"world": {"size_m": 0.5, "climate": "garden", "seasonal": True, "soil": True, "moist": True},
+                          "flies": {"males": 1, "females": 1, "starved_h": 6, "virgin": False},
+                          "run": {"ff_hours": 6, "session_s": 60, "limit_compute_h": 22, "neural_record": "every_second"}}},
+    "dir_injury": {"kind": "directed", "title": "Травма ноги",
+                   "desc": "Самка без левой передней ноги: как меняется ходьба и работа моторной цепи VNC.",
+                   "cfg": {"world": {"size_m": 0.2, "climate": "container"}, "flies": {"males": 0, "females": 1,
+                           "starved_h": 18}, "science": _NOSHORT, "run": {**_ONE2ONE, "limit_compute_h": 8},
+                           "injuries": {"lf": "amputated", "apply_to": "first_female"}}},
+    "dir_transplant": {"kind": "directed", "title": "Пересадка в другое тело",
+                       "desc": "На 60-й секунде мозг самца получает тело самки и наоборот (у тела самца нет правой "
+                               "средней ноги). Отслеживаем, перестраивается ли управление: совпадение команды "
+                               "поворота с реальным поворотом, проприоцепция, сигналы наказания. Анализ: "
+                               "scripts/analyze_transplant.py.",
+                       "cfg": {"world": {"size_m": 0.2, "climate": "container"}, "flies": {"males": 1, "females": 1,
+                               "starved_h": 12}, "science": _NOSHORT, "run": {**_ONE2ONE, "session_s": 300,
+                               "limit_compute_h": 12}, "injuries": {"rm": "amputated", "apply_to": "first_male"},
+                               "transplant": {"enabled": True, "at_s": 60}}},
 }
 
 # reference values shown next to the apple state
@@ -213,6 +297,8 @@ class Simulation:
         self.log = EventLog()
         from flysim.sim.chronicle import Chronicle
         self.chron = Chronicle(meta={"title": "Свободная симуляция", "config": cfg})
+        self.chron.FULL_EVERY = 1 if run.get("neural_record", "every_frame") == "every_frame" else 10
+        self.transplant_done = False
         self.run_id = self.chron.run_id
         self.frames = []
         self.lock = threading.Lock()
@@ -326,6 +412,30 @@ class Simulation:
             f.age_d = 0.0
             self.log._ev(w, f, 0.0, "birth", f"новая муха {f.cfg.name} с собственным мозгом")
 
+    def _transplant(self, t):
+        """Brain of the first male gets the body of the first female and vice versa: position,
+        posture/heading, lesions (body schema), metabolism (gut, fat, hunger) and body temperature.
+        Senses and motor output keep their own brain's wiring. Done only when both walk."""
+        w = self.world
+        m = next((f for f in w.flies if f.cfg.sex == "male"), None)
+        fm = next((f for f in w.flies if f.cfg.sex == "female"), None)
+        if m is None or fm is None:
+            self.transplant_done = True
+            return
+        if m.body.mode != "walk" or fm.body.mode != "walk":
+            return                     # wait until both are on the ground
+        m.body.pos, fm.body.pos = fm.body.pos.copy(), m.body.pos.copy()
+        m.body.yaw, fm.body.yaw = fm.body.yaw, m.body.yaw
+        for attr in ("schema", "meta", "thermal"):
+            a, b = getattr(m, attr), getattr(fm, attr)
+            setattr(m, attr, b)
+            setattr(fm, attr, a)
+        w.rebuild_physics()
+        self.transplant_done = True
+        for f, o in ((m, fm), (fm, m)):
+            self.log._ev(w, f, t, "transplant", f"пересадка: мозг {f.cfg.name} теперь управляет телом {o.cfg.name} "
+                         f"(место, поза, травмы, голод {f.meta.hunger:.2f}, температура тела)", others=[o.cfg.name])
+
     def _apply_pending(self):
         added = False
         while self.pending:
@@ -396,6 +506,10 @@ class Simulation:
                     self.world.step(0.01)
                     t += 0.01
                     k += 1
+                    self.detailed_s = getattr(self, "detailed_s", 0.0) + 0.01
+                    tp = self.cfg.get("transplant", {})
+                    if tp.get("enabled") and not self.transplant_done and self.detailed_s >= float(tp.get("at_s", 60)):
+                        self._transplant(t)
                     if k % per == 0:
                         self.snapshot(t)
                 if self.stop_flag:
@@ -732,7 +846,7 @@ def make_handler(app: App):
                 from flysim.sim.protocol import PROTOCOLS
                 return self._json({"schema": SCHEMA, "apple_norms": APPLE_NORMS,
                                    "region_names": REGION_NAMES, "region_colors": REGION_COLORS,
-                                   "frame_dt": FRAME_DT, "defaults": defaults(),
+                                   "frame_dt": FRAME_DT, "defaults": defaults(), "presets": PRESETS,
                                    "protocols": {k: {"hypothesis": v["hypothesis"], "groups": list(v["groups"]),
                                                      "reference": v["reference"]} for k, v in PROTOCOLS.items()}})
             if u.path == "/api/status":

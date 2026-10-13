@@ -22,7 +22,7 @@ EVENT_META = {
     "arousal": ("social", 1), "song_start": ("courtship", 2), "chase": ("courtship", 2),
     "escape": ("distress", 2), "smell": ("info", 1), "touch": ("social", 1),
     "encounter": ("fight", 2), "lunge": ("fight", 3), "copulation": ("mating", 3),
-    "egg": ("mating", 2), "birth": ("life", 3), "death": ("life", 3), "injury": ("life", 2),
+    "egg": ("mating", 2), "birth": ("life", 3), "death": ("life", 3), "injury": ("life", 2), "transplant": ("life", 3),
     "cold_coma": ("distress", 2), "anoxia": ("distress", 3), "behaviour": ("social", 1),
     "apple": ("world", 2), "air": ("world", 2), "weather": ("world", 1), "plant": ("world", 2), "info": ("info", 1),
 }
