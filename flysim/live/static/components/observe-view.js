@@ -7,7 +7,7 @@ import { eventCSS, eventRow } from '../lib/events.js';
 import { newApple } from './apple-editor.js';
 import { openPassport } from './passport-dialog.js';
 import { statusChip } from './home-view.js';
-import './ui.js';
+import { confirmDialog } from './ui.js';
 import './arena.js';
 import './env-strip.js';
 import './fly-card.js';
@@ -158,7 +158,15 @@ class FsObserve extends LitElement {
     toast(sex === 'male' ? 'самец будет добавлен' : 'самка будет добавлена');
   }
   async _pause() { const r = await post(`/api/sim/${this.runId}/pause`); this.paused = !!r.paused; }
-  async _stop() { await post(`/api/sim/${this.runId}/stop`); toast('наблюдение останавливается'); this._stAt = 0; }
+  async _stop() {
+    const ok = await confirmDialog({ title: 'Остановить наблюдение?', ok: 'Остановить', danger: false,
+      text: 'Мозг перестанет считаться, а мухи доживут свою жизнь: мир проматывается по суткам, мухи едят по правилам '
+        + 'перемотки, стареют, голодают, когда кончится еда, и каждая умирает своей причиной (старость, голод, холод, '
+        + 'аноксия, токсин). Новые мухи не появляются. Смерти записываются в хронику. Повторное нажатие «Стоп» '
+        + 'обрывает доживание сразу.' });
+    if (!ok) return;
+    await post(`/api/sim/${this.runId}/stop`); toast('мухи доживают свою жизнь'); this._stAt = 0;
+  }
   async _submitApple() {
     const a = this.addApple; this.addApple = null;
     await post(`/api/sim/${this.runId}/add_apple`, a);

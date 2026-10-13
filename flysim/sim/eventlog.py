@@ -87,7 +87,7 @@ class EventLog:
             self.events.append({"id": len(self.events), "clock_h": d["clock_h"], "t": round(t, 3),
                                 "session": self.session, "frame": self.frame_idx, "fly": d["name"],
                                 "sex": d["sex"], "type": "death", "cat": "life", "imp": 3,
-                                "text": f"погибла: {d['cause']} (возраст {d['age_d']} дн)",
+                                "text": f"{'погиб' if d['sex'] == 'male' else 'погибла'}: {d['cause']} (возраст {d['age_d']} дн)",
                                 "others": [], "pos": d["pos"], "data": {"cause": d["cause"]}})
         st["deaths"] = len(getattr(w, "deaths", []))
         wx = getattr(w, "weather", None)

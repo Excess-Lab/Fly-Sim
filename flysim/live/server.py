@@ -306,6 +306,7 @@ class Simulation:
         self.frames = []
         self.lock = threading.Lock()
         self.stop_flag = False
+        self.finish_mode = False   # "live out": no more brain computation, world runs until all adults die
         self.paused = False
         self.status = "загрузка мозгов…"
         self.error = None
@@ -415,6 +416,25 @@ class Simulation:
             f.age_d = 0.0
             self.log._ev(w, f, 0.0, "birth", f"новая муха {f.cfg.name} с собственным мозгом")
 
+    def _live_out(self, max_days=730):
+        """The experimenter stops watching neurons; the flies live out their lives off-line
+        (metabolism, food from the fruit, ageing, mortality - same rules as fast-forward) until the
+        last adult dies of its own cause. No new adults are added (brood is only counted)."""
+        w = self.world
+        w.population.max_adults = 0
+        start = w.clock_h
+        while w.flies and not self.stop_flag and (w.clock_h - start) < max_days * 24:
+            n = len(w.flies)
+            self.status = (f"доживание: день {(w.clock_h - start) / 24:.0f}, "
+                           f"осталось мух {n} — мозг не считается, жизнь по моделям метаболизма и смертности")
+            self.fast_forward(24.0)
+            self.snapshot(0.0)
+        if not w.flies:
+            self.status = f"все мухи умерли своей смертью за {(w.clock_h - start) / 24:.0f} дн после остановки счёта мозга"
+        else:
+            self.status = "доживание прервано"
+        self.stop_flag = True
+
     def _transplant(self, t):
         """Brain of the first male gets the body of the first female and vice versa: position,
         posture/heading, lesions (body schema), metabolism (gut, fat, hunger) and body temperature.
@@ -492,15 +512,16 @@ class Simulation:
             session = 0
             while not self.stop_flag:
                 lim = self.limit_reached()
-                if lim:
+                if lim:                    # any stop ends in natural deaths
                     self.status = lim
+                    self._live_out()
                     break
                 session += 1
                 self.log.session = session
                 self.status = f"сессия {session}: считаются все нейроны"
                 t, k = 0.0, 0
                 per = int(round(FRAME_DT / 0.01))
-                while t < float(run["session_s"]) and not self.stop_flag:
+                while t < float(run["session_s"]) and not self.stop_flag and not self.finish_mode:
                     if self.pending:
                         self._apply_pending()
                     if self.paused:
@@ -517,6 +538,9 @@ class Simulation:
                         self.snapshot(t)
                 if self.stop_flag:
                     break
+                if self.finish_mode:
+                    self._live_out()
+                    break
                 if float(run["ff_hours"]) > 0:
                     self.fast_forward(float(run["ff_hours"]))
                     if getattr(self.world, "physics_dirty", False) or True:
@@ -527,7 +551,7 @@ class Simulation:
                     self.status = "жизнь в мире прекратилась: не осталось ни мух, ни потомства"
                     self.snapshot(0.0)
                     break
-            if not self.limit_reached():
+            if not self.limit_reached() and not self.finish_mode:
                 self.status = "остановлено"
         except Exception as e:  # surface errors in the UI instead of dying silently
             self.error = f"{e}\n{traceback.format_exc()}"
@@ -821,7 +845,10 @@ def make_handler(app: App):
                     return self._json({"error": "нет такого наблюдения"}, 404)
                 what = parts[3]
                 if what == "stop":
-                    sim.stop_flag = True
+                    if isinstance(sim, Simulation) and not sim.finish_mode:
+                        sim.finish_mode = True     # stop = the flies live out their lives and die
+                    else:
+                        sim.stop_flag = True       # experiments, or a second press: stop at once
                     return self._json({"ok": True})
                 if what == "pause":
                     sim.paused = not sim.paused
