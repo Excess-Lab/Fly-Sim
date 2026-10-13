@@ -10,6 +10,7 @@ import argparse
 import base64
 import io
 import json
+import os
 import threading
 import time
 import traceback
@@ -416,21 +417,89 @@ class Simulation:
             f.age_d = 0.0
             self.log._ev(w, f, 0.0, "birth", f"новая муха {f.cfg.name} с собственным мозгом")
 
+    LAST_MINUTES = float(os.environ.get("FLYSIM_LAST_MINUTES", 3.0))   # brain on for the last minutes before death
+
+    def _probe_deaths(self, horizon_h):
+        """Run the off-line life (same metabolism, feeding rule and mortality model as fast-forward)
+        on copies, minute by minute, and return {fly: (hours from now, cause)} for deaths within
+        the horizon. The copies' random generators are copies of the real ones."""
+        import copy
+        w = self.world
+        wc = copy.copy(w)
+        wc.apples, wc.atm = copy.deepcopy(w.apples), copy.deepcopy(w.atm)
+        wc.weather = copy.deepcopy(w.weather)
+        wc.plants, wc.population, wc.flies, wc.arena_phys = None, None, [], None
+        sims = [(f, copy.deepcopy(f.meta), copy.deepcopy(f.mortality)) for f in w.flies]
+        out, t, step = {}, 0.0, 1.0 / 60.0
+        while t < horizon_h - 1e-9 and len(out) < len(sims):
+            new_hour = int(t) != int(t + step) or t == 0.0
+            wc.advance_hours(step)
+            best = max(wc.apples, key=lambda a: a.nutrition()["sugar_frac"])
+            nut = best.nutrition()
+            for f, m, mort in sims:
+                if f in out:
+                    continue
+                m.temp_c, m.o2_pct = wc.ambient_c, wc.o2_pct
+                if new_hour and m.hunger > 0.3 and nut["sugar_frac"] > 0.05 and wc.o2_pct > 2:   # A75
+                    m.crop_ul = m.p.meal_volume_ul
+                    m.crop_sugar_ul = m.p.meal_volume_ul * nut["sugar_frac"]
+                    m.ingest_toxin(nut["patulin"], 0.0)
+                m.step(3600.0 * step)
+                m.ingest_toxin(0.0, 3600.0 * step)
+                cause = mort.step(3600.0 * step, m.energy, wc.ambient_c, wc.ambient_c, wc.o2_pct, m.health)
+                if cause:
+                    out[f] = (t + step, cause)
+            t += step
+        return out
+
     def _live_out(self, max_days=730):
-        """The experimenter stops watching neurons; the flies live out their lives off-line
-        (metabolism, food from the fruit, ageing, mortality - same rules as fast-forward) until the
-        last adult dies of its own cause. No new adults are added (brood is only counted)."""
+        """The experimenter stops: the flies live out their lives off-line (metabolism, food from
+        the fruit, ageing, mortality - the fast-forward rules) until each dies of its own cause.
+        The moment and cause of each death come from the mortality model; the last minutes before
+        it are computed with the whole brain and body on, so dying is recorded neuron by neuron.
+        No new adults are added (brood is only counted)."""
         w = self.world
         w.population.max_adults = 0
         start = w.clock_h
+        lead_h = self.LAST_MINUTES / 60.0
         while w.flies and not self.stop_flag and (w.clock_h - start) < max_days * 24:
-            n = len(w.flies)
-            self.status = (f"доживание: день {(w.clock_h - start) / 24:.0f}, "
-                           f"осталось мух {n} — мозг не считается, жизнь по моделям метаболизма и смертности")
-            self.fast_forward(24.0)
+            self.status = (f"доживание: день {(w.clock_h - start) / 24:.1f}, мух {len(w.flies)} — мозг выключен, "
+                           f"жизнь по моделям метаболизма и смертности")
+            deaths = self._probe_deaths(24.0)
+            if not deaths:
+                self.fast_forward(24.0)
+                self.snapshot(0.0)
+                continue
+            f0, (t0, _) = min(deaths.items(), key=lambda kv: kv[1][0])
+            # deaths that fall within the same last-minutes window are recorded together
+            fated = {f: v for f, v in deaths.items() if v[0] <= t0 + lead_h}
+            pre = max(0.0, t0 - lead_h)
+            for f, (t, cause) in fated.items():
+                f.fate = (cause, w.clock_h + t)
+            if pre > 0:
+                self.fast_forward(pre)
+            if getattr(self.world, "physics_dirty", False) or True:
+                w.rebuild_physics()
+            names = ", ".join(f.cfg.name for f in fated)
+            self.status = f"последние минуты жизни ({names}): мозг считается полностью"
+            for f in fated:
+                self.log._ev(w, f, 0.0, "info", f"последние {self.LAST_MINUTES:g} мин жизни: мозг и тело "
+                             f"считаются полностью до момента смерти ({f.fate[0]})")
+            t, k = 0.0, 0
+            per = int(round(FRAME_DT / 0.01))
+            limit_s = (min(v[0] for v in fated.values()) - pre) * 3600 + 120.0
+            while any(f in w.flies for f in fated) and t < limit_s and not self.stop_flag:
+                w.step(0.01)
+                t += 0.01
+                k += 1
+                if k % per == 0:
+                    self.snapshot(t)
+            for f in fated:
+                f.fate = None
             self.snapshot(0.0)
         if not w.flies:
-            self.status = f"все мухи умерли своей смертью за {(w.clock_h - start) / 24:.0f} дн после остановки счёта мозга"
+            self.status = (f"все мухи умерли своей смертью за {(w.clock_h - start) / 24:.1f} дн после остановки; "
+                           f"последние минуты каждой записаны с мозгом")
         else:
             self.status = "доживание прервано"
         self.stop_flag = True

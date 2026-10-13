@@ -112,6 +112,7 @@ class Fly:
         self.mortality = Mortality(np.random.default_rng(cfg.seed + 7919))
         self.mortality.bio_age_d = 3.0
         self.dead = None   # cause of death once dead
+        self.dying = None  # cause while the nervous system is failing (A101)
         self.meta = Metabolism.starved(cfg.starved_h)
         self.body = Body(pos=np.array(pos, float), yaw=yaw, rng=np.random.default_rng(cfg.seed))
         self.counts_acc = np.zeros(con.n, np.int32)
@@ -247,12 +248,25 @@ class Fly:
 
     def step(self, world, dt: float):
         rates = self.sense(world)
+        # neuronal energy: hypoxia, anoxic coma, spreading depolarisation, cell death (A101)
+        if not hasattr(self, "nenergy"):
+            from flysim.agent.neuro_energy import NeuronEnergy
+            self.nenergy = NeuronEnergy(self)
+            self._last_counts = np.zeros(self.brain.con.n, np.float32)
+        st = self.nenergy.step(dt, world.o2_pct, self._last_counts)
+        if st is not None:
+            self.brain.v_rest[:], silenced = st
+            rates = rates.copy()
+            rates[silenced[self.stim_idx]] = 0.0            # silenced/dead sensory neurons send nothing
+            if self.dying is not None and self.nenergy.all_failed():
+                self.dead = self.dying
         if len(self.lptc):
             moving = float((getattr(self, "cmd", None) or {}).get("forward", 0.0)) > 0.2
             st = 1.6 if self.body.mode == "fly" else (1.3 if moving else 1.0)
             self.brain.gain[self.lptc] = self.lptc_g0 * np.float32(st)
         n_steps = int(round(dt * 1000 / self.brain.p.dt))
         counts, _ = self.brain.step(n_steps, self.stim_idx, rates)
+        self._last_counts = counts.astype(np.float32)
         self.counts_acc += counts
         self.motor.update(counts, dt * 1000)
         self.cmd = self.motor.commands()
@@ -279,7 +293,7 @@ class Fly:
         else:
             near = world.nearest_apple(self.body.pos)
             self.body.step(self.cmd, dt, near.center, near.p.radius_mm, world.arena,
-                           spontaneous=self.cfg.spontaneous,
+                           spontaneous=self.cfg.spontaneous and self.dying is None,
                            o2_pct=world.o2_pct * self.meta.health * self._chill())  # poison, cold
         # ASSUMPTION(A61): a mated female standing on the fruit lays an egg when oviDNs fire,
         # at most one egg per 30 s
@@ -301,8 +315,20 @@ class Fly:
         self.meta.ingest_toxin(dose, dt)
         cause = self.mortality.step(dt, self.meta.energy, self.thermal.T, world.ambient_c,
                                     world.o2_pct, self.meta.health)
-        if cause and self.dead is None:
-            self.dead = cause
+        fate = getattr(self, "fate", None)     # death foreseen by the mortality model (live-out)
+        if fate is not None:
+            cause = fate[0] if world.clock_h >= fate[1] else None
+        ne = getattr(self, "nenergy", None)
+        if ne is not None and ne.active and ne.dead.mean() > 0.5 and not cause:
+            cause = "гибель нервной системы (аноксия)"
+        if cause and self.dead is None and self.dying is None:
+            # the organism fails: supply stops and the nervous system dies neuron by neuron (A101)
+            self.dying = cause
+            if not hasattr(self, "nenergy"):
+                from flysim.agent.neuro_energy import NeuronEnergy
+                self.nenergy = NeuronEnergy(self)
+            self.nenergy.start_terminal()
+            self.events.append((round(self.t, 3), f"dying:{cause}"))
         now = (self.body.mode, self.body.surface, self.body.proboscis)
         if now != was:
             self.events.append((round(self.t, 3), f"{was}->{now}"))
@@ -333,6 +359,8 @@ class Fly:
             self.thermal.T = world.ambient_c
             cause = self.mortality.step(3600.0 * dt_h, m.energy, world.ambient_c, world.ambient_c,
                                         world.o2_pct, m.health)
+            if getattr(self, "fate", None) is not None:
+                cause = None   # its death is scheduled and will be computed with the brain on
             if cause:
                 self.dead = cause
                 break

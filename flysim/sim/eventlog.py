@@ -23,6 +23,7 @@ EVENT_META = {
     "escape": ("distress", 2), "smell": ("info", 1), "touch": ("social", 1),
     "encounter": ("fight", 2), "lunge": ("fight", 3), "copulation": ("mating", 3),
     "egg": ("mating", 2), "birth": ("life", 3), "death": ("life", 3), "injury": ("life", 2), "transplant": ("life", 3),
+    "coma": ("distress", 3), "coma_end": ("distress", 2), "neuron_death": ("life", 3), "dying": ("life", 3),
     "cold_coma": ("distress", 2), "anoxia": ("distress", 3), "behaviour": ("social", 1),
     "apple": ("world", 2), "air": ("world", 2), "weather": ("world", 1), "plant": ("world", 2), "info": ("info", 1),
 }
@@ -42,7 +43,8 @@ TS_FIELDS = ["clock_h", "t", "fly", "sex", "x", "y", "z", "yaw", "mode", "surfac
              "cmd_forward", "cmd_backward", "cmd_turn", "cmd_takeoff", "cmd_land", "cmd_proboscis",
              "drive_L", "drive_R",
              # level 3: physical movement of the body
-             "speed_mm_s", "yaw_rate_deg_s", "legs_in_contact", "legs_on_apple", "body_temp_c"]
+             "speed_mm_s", "yaw_rate_deg_s", "legs_in_contact", "legs_on_apple", "body_temp_c",
+             "neuron_energy", "neurons_blocked", "neurons_dead", "dying"]
 
 APPLE_FIELDS = ["clock_h", "apple", "age_d", "sugar", "ethanol", "acetic", "esters", "yeast", "bacteria",
                 "ferm_rate", "odor_ethyl_acetate", "odor_ethanol", "odor_acetic_acid", "odor_CO2",
@@ -165,6 +167,13 @@ class EventLog:
                       "legs_on_apple": sum(1 for v in cont.values() if v == "apple"),
                       "body_temp_c": round(float(getattr(f, "thermal", None).T), 2)
                       if hasattr(f, "thermal") else np.nan})
+            ne = getattr(f, "nenergy", None)
+            if ne is not None and ne.active:
+                s.update({"neuron_energy": round(float(ne.E.mean()), 4),
+                          "neurons_blocked": int((ne.sd_t > 1.0).sum()), "neurons_dead": int(ne.dead.sum())})
+            else:
+                s.update({"neuron_energy": 1.0, "neurons_blocked": 0, "neurons_dead": 0})
+            s["dying"] = f.dying or ""
             self.rows.append(s)
             self._events_for(w, f, t, s, self.prev.get(f.cfg.name))
             self.prev[f.cfg.name] = s
@@ -208,6 +217,18 @@ class EventLog:
             f._distress_flag = True
         if f._ppl1_s == 0.0:
             f._distress_flag = False
+        n = max(1, f.brain.con.n)
+        if s["neurons_blocked"] > 0.5 * n >= p.get("neurons_blocked", 0):
+            E("coma", f"аноксическая кома: {s['neurons_blocked'] / n:.0%} нейронов в деполяризационном блоке "
+                      f"(энергия нейронов {s['neuron_energy']:.2f}, O₂ {w.o2_pct:.1f} %)")
+        if p.get("neurons_blocked", 0) > 0.5 * n >= s["neurons_blocked"] and not s["dying"]:
+            E("coma_end", f"выход из комы: нейроны восстанавливаются (энергия {s['neuron_energy']:.2f})")
+        for frac in (0.01, 0.1, 0.5):
+            if s["neurons_dead"] >= frac * n > p.get("neurons_dead", 0):
+                E("neuron_death", f"необратимо погибло {s['neurons_dead']:,} нейронов ({s['neurons_dead'] / n:.0%})")
+        if s["dying"] and not p.get("dying"):
+            E("dying", f"умирает ({s['dying']}): снабжение мозга прекратилось, по нервной системе идёт волна "
+                       f"распространяющейся деполяризации — нейроны дают залп и замолкают")
         if s["energy"] <= 0.0 < p["energy"]:
             E("starving", "энергия на нуле — истощение")
         chill = f._chill() if hasattr(f, "_chill") else 1.0
