@@ -294,4 +294,11 @@ class World:
         if self.atm is not None:
             self.atm.step(dt / 3600, self.apples, len(self.flies), self.ambient_c, **self.soil_args())
             self.sync_air()
+        # fruit chemistry also runs during detailed sessions (it changes over hours; update each
+        # simulated minute so that a world run 1:1 without fast-forward still rots)
+        self._live_h = getattr(self, "_live_h", 0.0) + dt / 3600
+        if self._live_h >= 1 / 60:
+            for a in self.apples:
+                a.age(self._live_h, dt_h=self._live_h)
+            self._live_h = 0.0
         self.clock_h += dt / 3600
