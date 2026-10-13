@@ -153,6 +153,9 @@ SCHEMA = {
     },
 }
 
+from flysim.live.param_help import attach as _attach_help  # noqa: E402
+_attach_help(SCHEMA)
+
 # Ready-made conditions for the "new observation" page. kind: objective = everything comes from the
 # connectome where the model allows it (shortcuts A24/A25 off, no fast-forward); directed = set up
 # to provoke or show something (may use fast-forward or fewer controls).

@@ -120,12 +120,12 @@ class FsNew extends LitElement {
       return html`<fs-apple-editor .apples=${v} .half=${this.cfg.world.size_m * 500} .norm=${s.norm}
         style="padding:var(--sp-3) 0" @value-changed=${on}></fs-apple-editor>`;
     }
-    if (s.type === 'select') return html`<fs-choice .label=${s.label} .options=${s.options} .value=${v} .norm=${s.norm || ''}
+    if (s.type === 'select') return html`<fs-choice .label=${s.label} .options=${s.options} .value=${v} .norm=${s.norm || ''} .help=${s.help || ''}
       ?disabled=${off} @value-changed=${on}></fs-choice>`;
-    if (s.type === 'bool') return html`<fs-switch .label=${s.label} .checked=${!!v} .norm=${s.norm || ''} ?disabled=${off}
+    if (s.type === 'bool') return html`<fs-switch .label=${s.label} .checked=${!!v} .norm=${s.norm || ''} .help=${s.help || ''} ?disabled=${off}
       @value-changed=${on}></fs-switch>`;
     return html`<fs-range .label=${s.label} .unit=${s.unit || ''} .min=${s.min} .max=${s.max} .step=${s.step} .value=${+v}
-      .norm=${s.norm ? (s.norm.startsWith('только') ? s.norm : 'Норма: ' + s.norm) : ''} .display=${DISPLAY[k] || null}
+      .help=${s.help || ''} .norm=${s.norm ? (s.norm.startsWith('только') ? s.norm : 'Норма: ' + s.norm) : ''} .display=${DISPLAY[k] || null}
       ?disabled=${off} @value-changed=${on}></fs-range>`;
   }
 

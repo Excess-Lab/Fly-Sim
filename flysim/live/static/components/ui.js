@@ -14,11 +14,22 @@ const fieldCSS = css`
   .label { font-weight: 500; min-width: 0; }
   .range { color: var(--text-3); font-size: var(--fs-xs); font-weight: 400; margin-left: 6px; white-space: nowrap; }
   .norm { color: var(--text-2); font-size: var(--fs-xs); margin-top: 6px; line-height: 1.45; }
+  .qb { all: unset; display: inline-grid; place-items: center; width: 17px; height: 17px; margin-left: 6px; border-radius: 50%;
+    border: 1px solid var(--border-strong); color: var(--text-3); font-size: 11px; font-weight: 600; cursor: pointer;
+    vertical-align: 1px; }
+  .qb:hover, .qb[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+  .help { background: var(--surface-2); border-radius: var(--r-s); padding: var(--sp-2) var(--sp-3); margin-top: 6px;
+    font-size: var(--fs-xs); line-height: 1.5; color: var(--text-2); }
 `;
+
+// "?" button + expandable explanation (what the setting is, how the model uses it)
+const helpBtn = el => el.help ? html`<button class="qb" aria-label="Что это?" title="Что это и как работает"
+  aria-expanded=${el._hopen ? 'true' : 'false'} @click=${e => { e.stopPropagation(); el._hopen = !el._hopen; }}>?</button>` : nothing;
+const helpText = el => el.help && el._hopen ? html`<div class="help">${el.help}</div>` : nothing;
 
 /** Boolean switch with label and optional hint. */
 export class FsSwitch extends LitElement {
-  static properties = { label: {}, norm: {}, checked: { type: Boolean }, disabled: { type: Boolean, reflect: true } };
+  static properties = { label: {}, norm: {}, help: {}, _hopen: { state: true }, checked: { type: Boolean }, disabled: { type: Boolean, reflect: true } };
   static styles = [shared, fieldCSS, css`
     button { all: unset; position: relative; width: 38px; height: 22px; border-radius: 999px; background: var(--surface-3);
       cursor: pointer; flex: none; transition: background .15s; border: 1px solid var(--border-strong); }
@@ -31,10 +42,10 @@ export class FsSwitch extends LitElement {
   `];
   render() {
     return html`<div class="top" @click=${this._toggle}>
-        <span class="label">${this.label}</span>
+        <span class="label">${this.label}${helpBtn(this)}</span>
         <button role="switch" aria-checked=${this.checked ? 'true' : 'false'} aria-label=${this.label}
           @click=${e => { e.stopPropagation(); this._toggle(); }}></button>
-      </div>${this.norm ? html`<div class="norm">${this.norm}</div>` : nothing}`;
+      </div>${this.norm ? html`<div class="norm">${this.norm}</div>` : nothing}${helpText(this)}`;
   }
   _toggle() { if (this.disabled) return; this.checked = !this.checked; emit(this, this.checked); }
 }
@@ -76,7 +87,7 @@ customElements.define('fs-segmented', FsSegmented);
 
 /** Labelled field wrapper for a segmented choice or a native select (when there are many options). */
 export class FsChoice extends LitElement {
-  static properties = { label: {}, norm: {}, options: { type: Object }, value: {}, disabled: { type: Boolean, reflect: true } };
+  static properties = { label: {}, norm: {}, help: {}, _hopen: { state: true }, options: { type: Object }, value: {}, disabled: { type: Boolean, reflect: true } };
   static styles = [shared, fieldCSS, css`
     .top { flex-wrap: wrap; }
     .full { color: var(--text-2); font-size: var(--fs-xs); margin-top: 6px; }
@@ -86,19 +97,19 @@ export class FsChoice extends LitElement {
     const short = l => String(l).split(/[:(]/)[0].trim();
     const seg = entries.length <= 4 && entries.every(([, l]) => short(l).length <= 22);
     const cur = this.options?.[this.value];
-    return html`<div class="top"><span class="label">${this.label}</span>
+    return html`<div class="top"><span class="label">${this.label}${helpBtn(this)}</span>
       ${seg ? html`<fs-segmented .options=${entries.map(([v, l]) => [v, short(l), l])} .value=${this.value}></fs-segmented>`
         : html`<select class="select" aria-label=${this.label} @change=${e => emit(this, e.target.value)}>
             ${entries.map(([v, l]) => html`<option value=${v} ?selected=${v === this.value}>${l}</option>`)}</select>`}</div>
       ${seg && cur && short(cur) !== cur ? html`<div class="full">${cur}</div>` : nothing}
-      ${this.norm ? html`<div class="norm">${this.norm}</div>` : nothing}`;
+      ${this.norm ? html`<div class="norm">${this.norm}</div>` : nothing}${helpText(this)}`;
   }
 }
 customElements.define('fs-choice', FsChoice);
 
 /** Numeric field: label, value + unit readout, slider paired with a number input, range and norm hint. */
 export class FsRange extends LitElement {
-  static properties = { label: {}, unit: {}, norm: {}, min: { type: Number }, max: { type: Number }, step: { type: Number },
+  static properties = { label: {}, unit: {}, norm: {}, help: {}, _hopen: { state: true }, min: { type: Number }, max: { type: Number }, step: { type: Number },
     value: { type: Number }, disabled: { type: Boolean, reflect: true }, display: { attribute: false } };
   static styles = [shared, fieldCSS, css`
     .ctl { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-2); }
@@ -114,14 +125,14 @@ export class FsRange extends LitElement {
   `];
   render() {
     const s = this.step || 1;
-    return html`<div class="top"><span class="label">${this.label}<span class="range">${fmtNum(this.min, s)}–${fmtNum(this.max, s)}${this.unit ? ' ' + this.unit : ''}</span></span>
+    return html`<div class="top"><span class="label">${this.label}${helpBtn(this)}<span class="range">${fmtNum(this.min, s)}–${fmtNum(this.max, s)}${this.unit ? ' ' + this.unit : ''}</span></span>
         ${this.display ? html`<span class="shown">${this.display(this.value)}</span>` : nothing}</div>
       <div class="ctl">
         <input type="range" min=${this.min} max=${this.max} step=${s} .value=${String(this.value)} aria-label=${this.label}
           @input=${e => this._set(+e.target.value)}>
         <span class="numbox"><input type="number" min=${this.min} max=${this.max} step=${s} .value=${fmtNum(this.value, s)}
           aria-label=${`${this.label}, ${this.unit || ''}`} @change=${this._num}>${this.unit ? html`<span class="unit">${this.unit}</span>` : nothing}</span>
-      </div>${this.norm ? html`<div class="norm">${this.norm}</div>` : nothing}`;
+      </div>${this.norm ? html`<div class="norm">${this.norm}</div>` : nothing}${helpText(this)}`;
   }
   _num(e) {
     let v = parseFloat(String(e.target.value).replace(',', '.'));
