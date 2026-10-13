@@ -110,25 +110,23 @@ Fly-Sim моделирует *Drosophila melanogaster*, поведением к�
 
 ## Быстрый старт
 
-**Docker**
+**Docker** — одна команда; видеокарта NVIDIA определяется и используется автоматически.
+
+Windows: дважды щёлкните `start.bat` (или запустите его в терминале). Linux / macOS:
 
 ```bash
-docker compose up --build
+./start.sh
 ```
 
-Откройте http://localhost:8800 и выделите Docker не меньше 6 ГБ памяти. Страница открывается сразу; при первом запуске в фоне скачивается ~1,2 ГБ данных коннектомов
-в `./data` (ход загрузки — на главной и в `data/download.log`), после этого можно запускать
-наблюдения.
+Откройте http://localhost:8800 и выделите Docker не меньше 6 ГБ памяти. Страница открывается
+сразу; при первом запуске в фоне скачивается ~1,2 ГБ данных коннектомов в `./data` (ход загрузки —
+на главной и в `data/download.log`), после этого можно запускать наблюдения. На главной видно, где
+считается мозг (название видеокарты или число ядер процессора).
 
-**Видеокарта NVIDIA** (драйвер + NVIDIA Container Toolkit): мозг считается на GPU.
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
-```
-
-Локально: `uv pip install -e ".[cuda]"` и `FLYSIM_BACKEND=cuda` (по умолчанию `auto` сам выбирает
-GPU, если она есть). `scripts/check_cuda.py --bench female_banc` сравнивает GPU и CPU и
-показывает скорость; `scripts/validate_all.py` — проверки корректности.
+Для видеокарты нужен драйвер NVIDIA (Windows: Docker Desktop с WSL 2; Linux: NVIDIA Container
+Toolkit). Без них или на Маке тот же образ работает на процессоре. Вручную без скрипта:
+`docker compose up --build` (процессор) или
+`docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build` (видеокарта).
 
 **Локально** (Python 3.12, macOS или Linux)
 
@@ -139,6 +137,11 @@ uv venv --python 3.12 .venv && uv pip install -e ".[validate]"
 ```bash
 scripts/download_data.sh && .venv/bin/python -m flysim.live
 ```
+
+На Linux и Windows поддержка видеокарты (`numba-cuda`) ставится вместе с пакетом и включается
+сама, если есть NVIDIA (`FLYSIM_BACKEND=auto`; принудительно — `cuda` или `cpu`).
+`scripts/check_cuda.py --bench female_banc` сравнивает скорость GPU и CPU;
+`scripts/validate_all.py` — проверки корректности.
 
 ## Как пользоваться сайтом
 

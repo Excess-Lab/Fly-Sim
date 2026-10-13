@@ -218,13 +218,32 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
                         da_base)
 
 
+def backend_info() -> dict:
+    """Which backend new brains will use (shown in the web app)."""
+    import os
+    mode = os.environ.get("FLYSIM_BACKEND", "auto").lower()
+    if mode != "cpu":
+        try:
+            from flysim.brain import lif_cuda
+            if lif_cuda.available():
+                return {"backend": "gpu", "device": lif_cuda.device_name(), "mode": mode}
+        except Exception:
+            pass
+    return {"backend": "cpu", "device": f"{os.cpu_count()} CPU cores", "mode": mode}
+
+
 def _make_gpu_runner(brain):
     """FLYSIM_BACKEND = auto (default: NVIDIA GPU if present) | cuda | cpu."""
     import os
     mode = os.environ.get("FLYSIM_BACKEND", "auto").lower()
     if mode == "cpu":
         return None
-    from flysim.brain import lif_cuda
+    try:
+        from flysim.brain import lif_cuda
+    except Exception:            # numba-cuda not installed (e.g. macOS): CPU
+        if mode == "cuda":
+            raise
+        return None
     if not lif_cuda.available():
         if mode == "cuda":
             raise RuntimeError("FLYSIM_BACKEND=cuda but no CUDA GPU is available")

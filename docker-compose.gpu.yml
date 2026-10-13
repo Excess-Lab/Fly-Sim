@@ -1,12 +1,10 @@
-# GPU override:  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+# GPU add-on (picked automatically by start.sh / start.bat when an NVIDIA GPU is present):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+# Same image as the CPU version; this only gives the container the GPU.
 services:
   flysim:
-    build:
-      context: .
-      dockerfile: Dockerfile.cuda
-    image: flysim:cuda
     environment:
-      - FLYSIM_BACKEND=cuda
+      - FLYSIM_BACKEND=auto
     deploy:
       resources:
         reservations:

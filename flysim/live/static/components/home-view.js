@@ -106,7 +106,9 @@ class FsHome extends LitElement {
   render() {
     return html`
       <div class="page-head"><div><h1>Наблюдения</h1>
-        <p class="sub">Можно вести несколько наблюдений одновременно и открывать каждое в своей вкладке.</p></div>
+        <p class="sub">Можно вести несколько наблюдений одновременно и открывать каждое в своей вкладке.</p>
+        ${this.data?.compute ? html`<p class="sub small">Мозг считается на: <b>${this.data.compute.backend === 'gpu'
+          ? 'видеокарте ' + this.data.compute.device : 'процессоре (' + this.data.compute.device + ')'}</b></p>` : nothing}</div>
         <a class="btn primary" href="#/new">${icons.plus}Новое наблюдение</a></div>
       ${this.offline ? html`<div class="err" style="margin-bottom:16px">Нет связи с сервером — список не обновляется.</div>` : nothing}
       ${this.data && !this.data.ready ? html`<div class="err" style="margin-bottom:16px">

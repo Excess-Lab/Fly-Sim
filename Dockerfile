@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 WORKDIR /app
 COPY pyproject.toml README.md README.ru.md LICENSE NOTICE.md ./
 COPY flysim ./flysim
+# includes NVIDIA CUDA support (used automatically when the container gets a GPU)
 RUN pip install --no-cache-dir -e .
 COPY scripts ./scripts
 COPY docker ./docker

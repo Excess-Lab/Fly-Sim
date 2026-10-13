@@ -652,7 +652,14 @@ def data_status() -> dict:
             missing.append(rel)
     log = root / "data" / "download.log"
     tail = log.read_text(errors="replace").strip().splitlines()[-3:] if log.exists() else []
-    return {"ready": not missing, "missing": missing, "log": tail}
+    global _BACKEND
+    if _BACKEND is None:
+        from flysim.brain.lif import backend_info
+        _BACKEND = backend_info()
+    return {"ready": not missing, "missing": missing, "log": tail, "compute": _BACKEND}
+
+
+_BACKEND = None
 
 
 def make_handler(app: App):

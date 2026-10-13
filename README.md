@@ -110,25 +110,23 @@ into seedlings and fruiting trees; a life cycle from egg to adult; individual mo
 
 ## Quick start
 
-**Docker**
+**Docker** — one command; an NVIDIA GPU is detected and used automatically.
+
+Windows: double-click `start.bat` (or run it in a terminal). Linux / macOS:
 
 ```bash
-docker compose up --build
+./start.sh
 ```
 
-Open http://localhost:8800. The page opens at once; on the first start about 1.2 GB of public
-connectome data download into `./data` in the background (progress on the home page and in
-`data/download.log`), and runs can start when it is done. Give Docker at least 6 GB of memory.
+Open http://localhost:8800 and give Docker at least 6 GB of memory. The page opens at once; on
+the first start about 1.2 GB of public connectome data download into `./data` in the background
+(progress on the home page and in `data/download.log`), and runs can start when it is done.
+The home page shows where the brain is computed (GPU name or CPU cores).
 
-**NVIDIA GPU** (driver + NVIDIA Container Toolkit on the host): the brain runs on the GPU.
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
-```
-
-Locally: `uv pip install -e ".[cuda]"` and `FLYSIM_BACKEND=cuda` (default `auto` picks the GPU when
-one is present). `scripts/check_cuda.py --bench female_banc` compares GPU and CPU and reports the
-speed; `scripts/validate_all.py` runs the correctness checks.
+GPU use needs an NVIDIA driver on the host (Windows: Docker Desktop with WSL 2; Linux: the NVIDIA
+Container Toolkit). Without them, or on a Mac, the same image runs on the CPU. Manual start
+without the script: `docker compose up --build` (CPU) or
+`docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build` (GPU).
 
 **Local** (Python 3.12, macOS or Linux)
 
@@ -139,6 +137,11 @@ uv venv --python 3.12 .venv && uv pip install -e ".[validate]"
 ```bash
 scripts/download_data.sh && .venv/bin/python -m flysim.live
 ```
+
+On Linux/Windows the GPU support (`numba-cuda`) installs with the package and is used when an
+NVIDIA GPU is present (`FLYSIM_BACKEND=auto`; force with `cuda` or `cpu`).
+`scripts/check_cuda.py --bench female_banc` compares GPU and CPU speed;
+`scripts/validate_all.py` runs the correctness checks.
 
 ## Using the web app
 

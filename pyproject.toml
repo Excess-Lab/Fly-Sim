@@ -11,12 +11,14 @@ dependencies = [
     "numba",
     "flygym==2.1.0",
     "mujoco>=3.3",
+    # NVIDIA GPU support is installed automatically on Linux/Windows and used when a GPU is
+    # present (FLYSIM_BACKEND=auto); macOS has no CUDA
+    "numba-cuda[cu12]; sys_platform != 'darwin'",
 ]
 
 [project.optional-dependencies]
 validate = ["brian2", "matplotlib", "pytest"]
-# NVIDIA GPU backend (FLYSIM_BACKEND=cuda); brings the CUDA 12 runtime wheels
-cuda = ["numba-cuda[cu12]"]
+cuda = ["numba-cuda[cu12]"]   # kept for explicit installs
 
 [tool.setuptools.packages.find]
 include = ["flysim*"]

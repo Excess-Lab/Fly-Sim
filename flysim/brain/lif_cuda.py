@@ -18,10 +18,15 @@ Use: FLYSIM_BACKEND=cuda (or auto: GPU if available, else CPU).
 import math
 
 import numpy as np
-from numba import cuda
-from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float64
 
-from flysim.brain.lif import PLAST_EVERY
+# numba-cuda still registers np.row_stack, removed in NumPy 2.4 (it was an alias of vstack)
+if not hasattr(np, "row_stack"):
+    np.row_stack = np.vstack
+
+from numba import cuda  # noqa: E402
+from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float64  # noqa: E402
+
+from flysim.brain.lif import PLAST_EVERY  # noqa: E402
 
 TPB = 256
 
@@ -31,6 +36,14 @@ def available() -> bool:
         return cuda.is_available()
     except Exception:
         return False
+
+
+def device_name() -> str:
+    try:
+        return cuda.get_current_device().name.decode() if isinstance(cuda.get_current_device().name, bytes) \
+            else str(cuda.get_current_device().name)
+    except Exception:
+        return ""
 
 
 def _blocks(n):

@@ -8,3 +8,4 @@
 *.feather binary
 *.parquet binary
 *.gz binary
+*.bat text eol=crlf
