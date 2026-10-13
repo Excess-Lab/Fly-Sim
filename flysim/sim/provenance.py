@@ -73,8 +73,9 @@ def connectome_coverage(fly) -> dict:
     if not has_vnc:
         missing += ["ventral nerve cord (leg/wing sensory and motor neurons, local VNC circuits)",
                     "leg nociception and leg taste pathways", "VNC locomotor circuits"]
-    missing += ["neuromodulator volume transmission (dopamine/serotonin/octopamine act only as "
-                "plasticity teaching signal or not at all)", "electrical synapses (gap junctions)",
+    missing += ["neuromodulator volume transmission (dopamine = plasticity teaching signal; octopamine "
+                "only as state gain of visual motion neurons, A100; serotonin none)",
+                "electrical synapses except physiologically documented pairs (GF->TTMn/PSI, sister PNs; A99)",
                 "glia", "peripheral and enteric nervous system"]
     return {"dataset": dataset, "neurons": int(fly.brain.con.n),
             "connections": int(len(fly.brain.con.post)), "has_vnc": has_vnc,

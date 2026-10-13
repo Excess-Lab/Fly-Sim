@@ -57,6 +57,11 @@ class Fly:
         dan = np.concatenate([self.ppl1, self.pam])
         if cfg.plasticity:
             self.brain.enable_plasticity(self.kc, self.mbon, dan)
+        # ASSUMPTION(A100): behavioural-state (octopamine) gain of lobula plate tangential cells:
+        # visual motion responses grow during walking and more during flight (Chiappe et al.
+        # 2010; Maimon et al. 2010; Suver et al. 2012). x1.3 walking, x1.6 flight.
+        self.lptc = np.flatnonzero(t.str.match(r"^(HS[ENS]|VS\d*|H2)$").to_numpy())
+        self.lptc_g0 = self.brain.gain[self.lptc].copy()
         self.olf = Olfaction(ann)
         self.gust = Gustation(ann)
         self.thermo = Thermo(ann)
@@ -242,6 +247,10 @@ class Fly:
 
     def step(self, world, dt: float):
         rates = self.sense(world)
+        if len(self.lptc):
+            moving = float((getattr(self, "cmd", None) or {}).get("forward", 0.0)) > 0.2
+            st = 1.6 if self.body.mode == "fly" else (1.3 if moving else 1.0)
+            self.brain.gain[self.lptc] = self.lptc_g0 * np.float32(st)
         n_steps = int(round(dt * 1000 / self.brain.p.dt))
         counts, _ = self.brain.step(n_steps, self.stim_idx, rates)
         self.counts_acc += counts

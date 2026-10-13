@@ -1,6 +1,8 @@
 """Build a ready-to-use brain for a given sex, with all biological corrections applied."""
 from dataclasses import replace
 
+import os
+
 import numpy as np
 
 from flysim.data.flywire import PROCESSED
@@ -33,6 +35,7 @@ def load(sex: str):
     return _cache[sex]
 
 
+GAP_JUNCTIONS = os.environ.get("FLYSIM_GAP_JUNCTIONS", "1") != "0"
 READOUT_TYPES = r"^(MN9|CB0701|PPL1|PAM|MBON|DM1_lPN|DM4_lPN)"
 
 
@@ -101,6 +104,35 @@ def banc_type_gains(b, ann):
     return g
 
 
+def gap_junction_pairs(ann) -> list:
+    """ASSUMPTION(A99): electrical synapses are invisible in the EM connectomes; only pairs with
+    direct physiological evidence are added.
+    - Giant fibre (DNp01) -> ipsilateral tergotrochanteral motor neuron (TTMn) and PSI: rectifying
+      ShakB junctions, every GF spike drives the target (1:1, ~0.5 ms; Tanouye & Wyman 1980;
+      Allen et al. 2006; Phelan et al. 2008): spikelet 20 mV forward, none backward, weak
+      subthreshold coupling CC 0.05.
+    - Sister uniglomerular projection neurons (same glomerulus, same side) are electrically
+      coupled (Kazama & Wilson 2009): CC 0.1, spikelet 1 mV both ways."""
+    import pandas as pd
+    t = pd.Series(ann.type.astype(str).to_numpy())
+    side = ann.side.astype(str).str.lower().to_numpy()
+    pairs = []
+    gf = np.flatnonzero((t == "DNp01").to_numpy())
+    tgt = np.flatnonzero(t.isin(["TTMn", "tergotrochanter_extensor", "PSI"]).to_numpy())
+    for g_ in gf:
+        for k in tgt:
+            if side[g_] in ("left", "right") and side[k] == side[g_]:
+                pairs.append((int(g_), int(k), 0.05, 20.0, 0.0))
+    pn = t.str.match(r"^[A-Z][A-Za-z0-9]*_[a-z0-9]*PN$").to_numpy()
+    df = pd.DataFrame({"i": np.flatnonzero(pn), "t": t.to_numpy()[pn], "s": side[pn]})
+    for _, grp in df.groupby(["t", "s"]):
+        ids = grp.i.to_numpy()
+        for x in range(len(ids)):
+            for y in range(x + 1, len(ids)):
+                pairs.append((int(ids[x]), int(ids[y]), 0.1, 1.0, 1.0))
+    return pairs
+
+
 def make_brain(sex: str, seed: int = 0) -> tuple[Brain, object]:
     con, ann = load(sex)
     p = LIFParams()
@@ -120,4 +152,6 @@ def make_brain(sex: str, seed: int = 0) -> tuple[Brain, object]:
         # dataset's global scale, so tests on them are not built in by the calibration.
         ro = ann.type.astype(str).str.match(READOUT_TYPES).to_numpy()
         b.gain[ro] = np.float32(np.median(b.gain) if sex == "female_banc" else 1.0)
+    if GAP_JUNCTIONS and sex in ("female_banc", "male"):   # FlyWire stays the pure Shiu 2024 reference
+        b.set_gap_junctions(gap_junction_pairs(ann))
     return b, ann

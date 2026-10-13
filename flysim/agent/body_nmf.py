@@ -298,7 +298,12 @@ class NMFBody:
             base = cmd["forward"] - cmd["backward"]
             if spontaneous:
                 base += 0.35  # A30: weak intrinsic locomotor drive
-            turn = cmd["turn"] + (0.4 * self.rng.standard_normal() if spontaneous else 0.0)
+            # A30: spontaneous turning is temporally correlated (turn bouts last ~0.5-1 s; Katsov &
+            # Clandinin 2008; Berman et al. 2014): Ornstein-Uhlenbeck, tau 0.7 s, sd 0.4.
+            # (White noise at the 10 ms brain step averaged out and gave straight-line walks.)
+            a = np.exp(-dt / 0.7)
+            self.turn_ou = a * getattr(self, "turn_ou", 0.0) + np.sqrt(1 - a * a) * 0.4 * self.rng.standard_normal()
+            turn = cmd["turn"] + (self.turn_ou if spontaneous else 0.0)
             if self.proboscis or vigor <= 0:
                 base, turn = 0.0, 0.0
             # positive turn = left: right legs stronger

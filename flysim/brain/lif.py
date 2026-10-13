@@ -95,9 +95,15 @@ PLAST_EVERY = 10  # steps (1 ms)
 
 
 @njit(cache=True, nogil=True)
-def _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, c, kc_new, da_new):
+def _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, c, kc_new, da_new, da_base):
     """Dopamine-gated, timing-dependent KC->MBON plasticity; one update per PLAST_EVERY steps.
-    c = [dt_s, decay_x, decay_da, eta_dep, eta_rec, 1/tau_forget, eta_pot, w_max_ratio]
+    c = [dt_s, decay_x, decay_da, eta_dep, eta_rec, 1/tau_forget, eta_pot, w_max_ratio, decay_base,
+         n_windows, base_threshold]
+    ASSUMPTION(A26b): only dopamine above 1.2x each compartment's own running baseline (smoothed
+      level, tau ~20 s) teaches. Tonic DAN firing (present in real flies) does not write memories; US-evoked DAN
+      bursts do (Mao & Davis 2009; Cohn et al. 2015). Slow forgetting that tonic dopamine causes
+      in vivo (Berry et al. 2012) is represented by the passive term tau_forget, set to the
+      measured decay of shock memory (half-life ~2-3 h; Tully & Quinn 1985).
       forward pairing  (KC trace, then DA arrives)  -> depression        (Hige 2015; Handler 2019)
       backward pairing (DA trace, then KC spikes)   -> potentiation      (Handler 2019: relief)
       KC activity without DA                        -> recovery to w0    (Cohn 2015; Berry 2018)
@@ -106,15 +112,29 @@ def _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, c, kc_new,
     ASSUMPTION(A20-A23): see ASSUMPTIONS.md.
     """
     dt = c[0]
+    # slow baseline of each compartment's smoothed DA level; cumulative mean at start, then
+    # exponential with tau_base (c[8] = per-window decay); c[9] counts windows
+    c[9] += 1.0
+    lam = max(c[8], 1.0 - 1.0 / c[9])
+    gate = np.empty(da_tr.shape[0])
+    gate_b = np.empty(da_tr.shape[0])
+    for i in range(da_tr.shape[0]):
+        prev = da_tr[i] - da_new[i]
+        da_base[i] = lam * da_base[i] + (1.0 - lam) * da_tr[i]
+        thr = c[10] * da_base[i]
+        # fraction of the current / preceding DA level that exceeds the baseline threshold
+        gate[i] = max(0.0, da_tr[i] - thr) / da_tr[i] if da_tr[i] > 0.0 else 0.0
+        gate_b[i] = max(0.0, prev - thr) if prev > 0.0 else 0.0
     for p in range(pe_edge.shape[0]):
         e = pe_edge[p]
         k_i = pe_pre[p]
         m = pe_m[p]
         x_before = x_tr[k_i] - kc_new[k_i]      # KC activity that preceded this window
-        da_before = da_tr[m] - da_new[m]        # dopamine that preceded this window
+        da_ph = da_new[m] * gate[m]             # phasic part of the DA arriving now
+        da_before = gate_b[m]                   # phasic DA that preceded this window
         w0 = pe_w0[p]
         wmax = c[7] * w0
-        a = c[3] * x_before * da_new[m] / dt
+        a = c[3] * x_before * da_ph / dt
         bp = c[6] * da_before * kc_new[k_i] / dt
         r = c[4] * kc_new[k_i] / dt + c[5]
         k = a + bp + r
@@ -136,7 +156,8 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
           stim_idx, stim_p, stim_w, kick_step, kick_idx, rng_state,
           counts, rec_mask, rec_out,
           pl_on, x_tr, da_tr, dan_ptr, dan_m, dan_a, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, pl_c,
-          kc_new, da_new, wad, decay_w, coef_w, b_w):
+          kc_new, da_new, da_base, wad, decay_w, coef_w, b_w,
+          gj_a, gj_b, gj_k, gk_ptr, gk_tgt, gk_amt):
     n = v.shape[0]
     D = ring.shape[0]
     csize = (n + N_CHUNKS - 1) // N_CHUNKS
@@ -150,6 +171,14 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
         slot = step % D
         _update_chunks(n, slot, v, g, rfc_left, frozen, ring, gain, decay_v, decay_g, coef_a,
                        v_0, v_th, spk_buf, spk_n, wad, decay_w, coef_w)
+        # electrical synapses: subthreshold coupling, gj_k = G_gap/G_leak * dt/t_mbr (A99)
+        for q in range(gj_a.shape[0]):
+            ia, ib = gj_a[q], gj_b[q]
+            dv = gj_k[q] * (v[ib] - v[ia])
+            if frozen[ia] == 0:
+                v[ia] += dv
+            if frozen[ib] == 0:
+                v[ib] -= dv
         # Poisson drive and scheduled kicks act on v after the threshold (Brian2 'synapses' slot)
         for j in range(stim_idx.shape[0]):
             if stim_p[j] > 0.0 and np.random.random() < stim_p[j]:
@@ -172,6 +201,9 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
                     rec_out[s, r] = 1
                 for e in range(indptr[i], indptr[i + 1]):
                     ring[out_slot, post[e]] += w[e]
+                for e in range(gk_ptr[i], gk_ptr[i + 1]):   # spikelet through gap junctions
+                    if rfc_left[gk_tgt[e]] == 0:
+                        v[gk_tgt[e]] += gk_amt[e]
                 if pl_on:
                     x_tr[i] += 1.0
                     kc_new[i] += 1.0
@@ -179,7 +211,8 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
                         da_tr[dan_m[j]] += dan_a[j]
                         da_new[dan_m[j]] += dan_a[j]
         if pl_on and (step + 1) % PLAST_EVERY == 0:
-            _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, pl_c, kc_new, da_new)
+            _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, pl_c, kc_new, da_new,
+                        da_base)
 
 
 @dataclass
@@ -207,6 +240,28 @@ class Brain:
         self._rng = np.random.default_rng(self.seed)
         self.disable_plasticity()
         self.reset()
+
+    def set_gap_junctions(self, pairs):
+        """pairs: list of (a, b, coupling_coefficient, spikelet_a_to_b_mV, spikelet_b_to_a_mV).
+        ASSUMPTION(A99): the steady-state coupling coefficient CC = G/(G + G_leak) of a symmetric
+        pair gives G/G_leak = CC / (1 - CC); spikes pass as instantaneous voltage kicks."""
+        n = self.con.n
+        a = np.array([x[0] for x in pairs], np.int64)
+        b = np.array([x[1] for x in pairs], np.int64)
+        cc = np.array([x[2] for x in pairs], np.float64)
+        self.gj_a, self.gj_b = a, b
+        self.gj_k = (cc / np.maximum(1 - cc, 1e-6)) * self.p.dt / self.p.t_mbr
+        src = np.concatenate([a, b]) if len(a) else np.zeros(0, np.int64)
+        tgt = np.concatenate([b, a]) if len(a) else np.zeros(0, np.int64)
+        amt = np.array([x[3] for x in pairs] + [x[4] for x in pairs], np.float64)
+        keep = amt > 0
+        src, tgt, amt = src[keep], tgt[keep], amt[keep]
+        order = np.argsort(src, kind="stable")
+        src, self.gk_tgt, self.gk_amt = src[order], tgt[order], amt[order]
+        self.gk_ptr = np.zeros(n + 1, np.int64)
+        np.add.at(self.gk_ptr, src + 1, 1)
+        self.gk_ptr = np.cumsum(self.gk_ptr)
+        self.n_gap = len(a)
 
     def apply_point_neuron_corrections(self, ann):
         """Remove synapses that cannot drive spikes in a point-neuron model.
@@ -254,13 +309,15 @@ class Brain:
         self.dan_m, self.dan_a = z32, zf
         self.pe_edge, self.pe_pre, self.pe_m, self.pe_w0 = z64, z32, z32, zf
         self.kc_idx = z64
-        self.pl_c = np.zeros(8, np.float64)
+        self.pl_c = np.zeros(11, np.float64)
         self.kc_new = np.zeros(1, np.float32)
         self.da_new = zf.copy()
+        self.da_base = zf.copy()
 
     def enable_plasticity(self, kc, mbon, dan, tau_elig_s=1.0, tau_da_s=0.5,
                           eta_dep=2.0, eta_rec=0.02, tau_forget_s=3 * 3600.0,
-                          eta_pot=0.5, w_max_ratio=2.0):
+                          eta_pot=0.5, w_max_ratio=2.0, tau_base_s=20.0,
+                          base_threshold=1.2):
         """Make KC->MBON synapses plastic, gated by dopamine.
 
         Which DAN modulates which MBON is taken from the connectome itself: a DAN spike adds
@@ -310,9 +367,11 @@ class Brain:
         self.kc_idx = kc
         dt_s = PLAST_EVERY * self.p.dt * 1e-3
         self.pl_c = np.array([dt_s, np.exp(-dt_s / tau_elig_s), np.exp(-dt_s / tau_da_s),
-                              eta_dep, eta_rec, 1.0 / tau_forget_s, eta_pot, w_max_ratio])
+                              eta_dep, eta_rec, 1.0 / tau_forget_s, eta_pot, w_max_ratio,
+                              np.exp(-dt_s / tau_base_s), 0.0, base_threshold])
         self.kc_new = np.zeros(n, np.float32)
         self.da_new = np.zeros(len(mbon), np.float32)
+        self.da_base = np.zeros(len(mbon), np.float32)
         self.pl_on = True
         self.mbon_idx = mbon
 
@@ -338,6 +397,8 @@ class Brain:
         # step s is delivered at step s + delay
         self.ring = np.zeros((self.delay_steps + 1, n), dtype=np.float32)
         self.wad = np.zeros(n, dtype=np.float64)
+        if not hasattr(self, "gj_a"):
+            self.set_gap_junctions([])
         self.t_step = 0
         if seed is not None:
             self._rng = np.random.default_rng(seed)
@@ -379,7 +440,8 @@ class Brain:
               int(self._rng.integers(2**31 - 1)), counts, rec_mask, rec_out,
               self.pl_on, self.x_tr, self.da_tr, self.dan_ptr, self.dan_m, self.dan_a,
               self.pe_edge, self.pe_pre, self.pe_m, self.pe_w0, self.kc_idx, self.pl_c,
-              self.kc_new, self.da_new, self.wad, self._decay_w, self._coef_w, p.b_w)
+              self.kc_new, self.da_new, self.da_base, self.wad, self._decay_w, self._coef_w, p.b_w,
+              self.gj_a, self.gj_b, self.gj_k, self.gk_ptr, self.gk_tgt, self.gk_amt)
 
     def run(self, t_ms: float, stim: dict | None = None, record=None, seed: int | None = None):
         """Convenience: fresh trial with constant Poisson stimulus {neuron_index: rate_Hz}."""
