@@ -633,6 +633,28 @@ def _source(app, rid):
     return None, [], None
 
 
+REQUIRED_DATA = {   # file -> expected bytes (None = just present); see scripts/download_data.sh
+    "data/raw/Connectivity_783.parquet": 100804642,
+    "data/raw/annotations/Supplemental_file1_neuron_annotations.tsv": None,
+    "data/raw/malecns/connectome-weights-male-cns-v1.0-minconf-0.5-traced-only.feather": 508025642,
+    "data/raw/malecns/body-annotations-male-cns-v1.0-minconf-0.5.feather": 14483314,
+    "data/raw/banc/banc_888_edgelist_simple_v3.feather": 359161658,
+    "data/raw/banc/banc_888_meta.feather": 57503026,
+}
+
+
+def data_status() -> dict:
+    root = PAGE.parents[2]
+    missing = []
+    for rel, size in REQUIRED_DATA.items():
+        f = root / rel
+        if not f.exists() or (size is not None and f.stat().st_size != size):
+            missing.append(rel)
+    log = root / "data" / "download.log"
+    tail = log.read_text(errors="replace").strip().splitlines()[-3:] if log.exists() else []
+    return {"ready": not missing, "missing": missing, "log": tail}
+
+
 def make_handler(app: App):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -656,6 +678,11 @@ def make_handler(app: App):
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
             parts = [unquote(x) for x in u.path.strip("/").split("/")]
+            if u.path in ("/api/start", "/api/experiment") and not data_status()["ready"]:
+                st = data_status()
+                return self._json({"error": "данные коннектомов ещё загружаются ("
+                                   + f"{len(st['missing'])} файлов осталось). Подождите и попробуйте снова; "
+                                   + "ход загрузки — на главной странице"}, 503)
             if u.path == "/api/start":
                 return self._json({"run_id": app.start(body)})
             if u.path == "/api/experiment":
@@ -701,6 +728,8 @@ def make_handler(app: App):
                                    "frame_dt": FRAME_DT, "defaults": defaults(),
                                    "protocols": {k: {"hypothesis": v["hypothesis"], "groups": list(v["groups"]),
                                                      "reference": v["reference"]} for k, v in PROTOCOLS.items()}})
+            if u.path == "/api/status":
+                return self._json(data_status())
             if u.path == "/api/sims":
                 out = []
                 for rid, sim in reversed(list(app.sims.items())):

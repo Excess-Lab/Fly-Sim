@@ -13,3 +13,5 @@ data/processed/
 results/
 .DS_Store
 .claude/
+data/.numba-cache/
+data/download.log
