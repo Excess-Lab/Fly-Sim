@@ -13,7 +13,7 @@ export function statusChip(s) {
 }
 
 class FsHome extends LitElement {
-  static properties = { sims: { state: true }, saved: { state: true }, loading: { state: true }, offline: { state: true }, busy: { state: true } };
+  static properties = { sims: { state: true }, saved: { state: true }, loading: { state: true }, offline: { state: true }, busy: { state: true }, data: { state: true } };
   static styles = [shared, css`
     .sim .card-b { display: grid; gap: var(--sp-3); }
     .sim h3 { font-size: var(--fs-m); overflow-wrap: anywhere; }
@@ -38,6 +38,7 @@ class FsHome extends LitElement {
     try {
       const d = await api('/api/sims');
       this.sims = d.sims || []; this.saved = d.saved || []; this.offline = false;
+      this.data = await api('/api/status').catch(() => null);
     } catch (e) { this.offline = true; }
     this.loading = false;
     if (this.isConnected) this._t = setTimeout(() => this._load(), 5000);
@@ -108,6 +109,11 @@ class FsHome extends LitElement {
         <p class="sub">Можно вести несколько наблюдений одновременно и открывать каждое в своей вкладке.</p></div>
         <a class="btn primary" href="#/new">${icons.plus}Новое наблюдение</a></div>
       ${this.offline ? html`<div class="err" style="margin-bottom:16px">Нет связи с сервером — список не обновляется.</div>` : nothing}
+      ${this.data && !this.data.ready ? html`<div class="err" style="margin-bottom:16px">
+        Данные коннектомов загружаются (первый запуск, ~1,2 ГБ): осталось файлов — ${this.data.missing.length}.
+        Запуск наблюдений станет доступен после загрузки.
+        ${this.data.log?.length ? html`<div class="small" style="font-family:var(--mono);margin-top:6px">${this.data.log.join(' · ')}</div>` : nothing}
+      </div>` : nothing}
       <div class="section-title"><h2>Идут и недавние</h2><span class="count">${this.sims.length || ''}</span></div>
       ${this.loading ? html`<div class="muted small">Загрузка…</div>`
         : this.sims.length ? html`<div class="grid">${this.sims.map(s => this._simCard(s))}</div>`

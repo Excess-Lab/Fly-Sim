@@ -5,7 +5,7 @@ services:
     ports:
       - "8800:8800"
     volumes:
-      # connectome data (~0.7 GB, downloaded on first start) and caches stay on your disk
+      # connectome data (~1.2 GB, downloaded on first start in the background) and caches stay on your disk
       - ./data:/app/data
       # every run (history, events, logs) is kept on your disk
       - ./results:/app/results

@@ -1,0 +1,10 @@
+# Unix line endings everywhere: shell scripts run inside the Linux container
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.png binary
+*.npy binary
+*.npz binary
+*.feather binary
+*.parquet binary
+*.gz binary
