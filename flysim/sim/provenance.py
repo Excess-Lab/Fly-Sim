@@ -45,7 +45,7 @@ def mechanism_mode(cfg, has_vnc: bool = False, shocked: bool = False) -> str:
     punish = cfg.us_punish_shortcut and (not has_vnc or shocked)
     if punish or cfg.us_reward_shortcut:
         return "experimental_shortcuts"
-    if cfg.spontaneous:
+    if cfg.spontaneous and getattr(cfg, "locomotion", "a30") != "brain":
         return "connectome_plus_approximations"
     return "connectome_only"
 
@@ -94,7 +94,9 @@ def fly_provenance(fly) -> dict:
     if c.us_reward_shortcut:
         shortcuts.append("A25: sugar ingestion -> PAM reward DANs (measured physiology)")
     approx = list(ALWAYS_APPROX)
-    if c.spontaneous:
+    if getattr(c, "locomotion", "a30") == "brain":
+        approx.append(("A101", "forward drive = DNp09 + DNg100 + DNg97 population (no A30)"))
+    elif c.spontaneous:
         approx.append(("A30", "spontaneous locomotor drive"))
     return {"fly": c.name, "sex": c.sex, "seed": c.seed, "mode": mechanism_mode(c, has_vnc, getattr(fly, "was_shocked", False)),
             "plasticity": c.plasticity, "shortcuts": shortcuts,
