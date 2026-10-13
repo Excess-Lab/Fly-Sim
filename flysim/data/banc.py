@@ -19,7 +19,7 @@ NON_NEURON = {"glia", "not_a_neuron", "trachea"}
 META_COLS = ["banc_888_id", "super_class", "cell_class", "cell_sub_class", "cell_type",
              "fafb_cell_type", "malecns_cell_type", "region", "side", "nerve", "neuromere",
              "neurotransmitter_predicted", "neurotransmitter_verified", "fafb_match",
-             "malecns_match", "root_position_nm"]
+             "malecns_match", "root_position_nm", "cell_function_detailed"]
 
 
 def meta() -> pd.DataFrame:
@@ -131,7 +131,10 @@ def annotations(con: Connectome, flywire_nt=None, flywire_type_nt=None, male_typ
     side = m.side.fillna("").astype(str).str.lower().replace({"l": "left", "r": "right"}).to_numpy()
     return pd.DataFrame({
         "type": ctype, "super_class": sc, "cell_class": cc, "cell_sub_class": csub,
-        "side": side, "nt": nt, "synonyms": "", "receptor": "",
+        "side": side, "nt": nt, "synonyms": "",
+        # contact-pheromone neurons annotated by receptor (ppk23/ppk25), same label as Male CNS
+        "receptor": np.where(m.cell_function_detailed.fillna("").astype(str).str.contains("ppk23"),
+                             "putative_ppk23", ""),
         "flywire_type": m.fafb_cell_type.fillna("").to_numpy(),
         "fafb_match": pd.to_numeric(m.fafb_match, errors="coerce").to_numpy(),
         "malecns_match": pd.to_numeric(m.malecns_match, errors="coerce").to_numpy(),

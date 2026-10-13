@@ -72,10 +72,11 @@ def _update_chunks(n, slot, v, g, rfc_left, frozen, ring, gain, decay_v, decay_g
                 frozen[i] = 0
                 gi = g[i]
                 wi = wad[i]
-                if gi != 0.0 or v[i] != v_0 or wi != 0.0:
+                v0i = v_0[i]   # per-neuron resting potential (tonic cells, A54c)
+                if gi != 0.0 or v[i] != v0i or wi != 0.0:
                     a = gi * coef_a
                     aw = -wi * coef_w
-                    v[i] = v_0 + (v[i] - v_0 - a - aw) * decay_v + a * decay_g + aw * decay_w
+                    v[i] = v0i + (v[i] - v0i - a - aw) * decay_v + a * decay_g + aw * decay_w
                     g[i] = gi * decay_g
                     wad[i] = wi * decay_w
                 if v[i] > v_th:
@@ -390,7 +391,9 @@ class Brain:
 
     def reset(self, seed: int | None = None):
         n = self.con.n
-        self.v = np.full(n, self.p.v_0, dtype=np.float64)
+        if getattr(self, "v_rest", None) is None or len(self.v_rest) != n:
+            self.v_rest = np.full(n, self.p.v_0, dtype=np.float64)
+        self.v = self.v_rest.copy()
         self.g = np.zeros(n, dtype=np.float64)
         self.rfc_left = np.zeros(n, dtype=np.int32)
         # ring slot k holds input arriving at steps == k (mod D); D = delay+1 so that a spike at
@@ -435,7 +438,7 @@ class Brain:
         p = self.p
         _step(n_steps, self.t_step, self.v, self.g, self.rfc_left, self.rfc_len, self.ring,
               self.con.indptr, self.con.post, self.w, self.gain,
-              self._decay_v, self._decay_g, self._coef_a, p.v_0, p.v_th, p.v_rst,
+              self._decay_v, self._decay_g, self._coef_a, self.v_rest, p.v_th, p.v_rst,
               stim_idx, stim_p, p.w_syn * p.f_poi, ks, ki,
               int(self._rng.integers(2**31 - 1)), counts, rec_mask, rec_out,
               self.pl_on, self.x_tr, self.da_tr, self.dan_ptr, self.dan_m, self.dan_a,

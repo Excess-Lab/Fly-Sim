@@ -7,7 +7,7 @@ Logistic growth with Monod substrate limitation (standard fermentation kinetics)
 
 ASSUMPTION(A40): rate constants are order-of-magnitude values for fruit at room temperature:
 yeast doubling ~2-4 h on fruit sugar, visible fermentation within ~1 day; in the model ethanol
-peaks at ~5 g/100 g on day 4 and acetic acid reaches ~5 g/100 g by day 10 (fruit/cider fermentation
+peaks at ~3 g/100 g on day ~7 and acetic acid reaches ~4 g/100 g by day 10 (fruit/cider fermentation
 literature; Becher et al. 2012 for yeast-fruit volatiles). Apple flesh sugar ~10-13 g/100 g
 (fructose ~6, glucose ~2, sucrose ~2.5; USDA FoodData Central).
 """
@@ -28,7 +28,8 @@ class AppleParams:
     yield_ac: float = 1.0         # g acetic acid per g ethanol (stoich. 1.30, practical lower)
     ester_frac: float = 0.002     # g esters per g sugar fermented
     lag_aab_h: float = 36.0       # bacteria establish after yeast acidify/produce ethanol
-    q_sugar: float = 0.25         # g/100g/h sugar fermented at full yeast biomass
+    q_sugar: float = 0.06         # g/100g/h at full yeast biomass; ethanol peak ~3 % at ~day 7
+                                  # (overripe/rotting fruit: <1 % typical, up to ~4.5 %; Dudley 2004)
     q_eth: float = 0.08           # g/100g/h ethanol oxidised at full bacterial biomass
     # ASSUMPTION(A40b): environment dependence. Microbial rates Q10 = 2 around 25 C.
     # Acetobacter is an obligate aerobe: growth ~ O2/(O2 + 1 %). Yeast ferments with or without O2.

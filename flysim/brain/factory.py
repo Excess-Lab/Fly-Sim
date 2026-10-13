@@ -133,6 +133,26 @@ def gap_junction_pairs(ann) -> list:
     return pairs
 
 
+def tonic_visual_cells(b, ann, min_frac=0.3):
+    """ASSUMPTION(A54c): first-order visual interneurons (cells that get >= 30 % of their input
+    synapses from photoreceptors: lamina monopolar cells, R7/R8 medulla targets) release
+    transmitter tonically in darkness and are hyperpolarised by light through histamine-gated
+    chloride channels (Laughlin 1981; Uusitalo et al. 1995; Hardie 1989). In the LIF model a
+    silent cell cannot be inhibited, so these cells get a resting potential above threshold
+    (-44.3 mV: ~20 Hz with no light) and photoreceptor input suppresses them (OFF signals)."""
+    import pandas as pd
+    t = pd.Series(ann.type.astype(str).to_numpy())
+    pr = np.flatnonzero(t.str.match(r"^(R1-6|R1-R6|R7|R8)").to_numpy())
+    con = b.con
+    pre = np.repeat(np.arange(con.n), np.diff(con.indptr))
+    tot = np.bincount(con.post, weights=np.abs(con.syn), minlength=con.n)
+    m = np.isin(pre, pr)
+    from_pr = np.bincount(con.post[m], weights=np.abs(con.syn[m]), minlength=con.n)
+    cells = np.flatnonzero((from_pr >= min_frac * np.maximum(tot, 1)) & (from_pr > 0))
+    cells = cells[~np.isin(cells, pr)]
+    return cells
+
+
 def make_brain(sex: str, seed: int = 0) -> tuple[Brain, object]:
     con, ann = load(sex)
     p = LIFParams()
@@ -152,6 +172,10 @@ def make_brain(sex: str, seed: int = 0) -> tuple[Brain, object]:
         # dataset's global scale, so tests on them are not built in by the calibration.
         ro = ann.type.astype(str).str.match(READOUT_TYPES).to_numpy()
         b.gain[ro] = np.float32(np.median(b.gain) if sex == "female_banc" else 1.0)
+    if sex in ("female_banc", "male"):
+        b.tonic_visual = tonic_visual_cells(b, ann)
+        b.v_rest[b.tonic_visual] = -44.3
+        b.reset(seed)
     if GAP_JUNCTIONS and sex in ("female_banc", "male"):   # FlyWire stays the pure Shiu 2024 reference
         b.set_gap_junctions(gap_junction_pairs(ann))
     return b, ann
