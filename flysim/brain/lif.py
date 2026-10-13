@@ -49,6 +49,11 @@ class LIFParams:
     # each spike adds b_w mV to an adaptation current that decays with tau_w.
     b_w: float = 0.0       # mV per spike
     tau_w: float = 200.0   # ms
+    # background synaptic noise (off by default = exact Shiu et al. 2024 model).
+    # ASSUMPTION(A07): central neurons receive unmodelled spontaneous input (neuromodulation,
+    # gap junctions, intrinsic noise): random +-bg_amp_mv kicks at bg_rate_hz per neuron
+    bg_rate_hz: float = 0.0
+    bg_amp_mv: float = 0.0
 
 
 N_CHUNKS = 64
@@ -158,7 +163,7 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
           counts, rec_mask, rec_out,
           pl_on, x_tr, da_tr, dan_ptr, dan_m, dan_a, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, pl_c,
           kc_new, da_new, da_base, wad, decay_w, coef_w, b_w,
-          gj_a, gj_b, gj_k, gk_ptr, gk_tgt, gk_amt):
+          gj_a, gj_b, gj_k, gk_ptr, gk_tgt, gk_amt, bg_idx, bg_p, bg_amp):
     n = v.shape[0]
     D = ring.shape[0]
     csize = (n + N_CHUNKS - 1) // N_CHUNKS
@@ -189,6 +194,13 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
         while k < kick_step.shape[0] and kick_step[k] == s:
             v[kick_idx[k]] += stim_w
             k += 1
+        # background noise: sparse random +-bg_amp kicks (A07)
+        if bg_p > 0.0:
+            n_ev = np.random.poisson(bg_idx.shape[0] * bg_p)
+            for _ in range(n_ev):
+                i = bg_idx[np.random.randint(bg_idx.shape[0])]
+                if rfc_left[i] == 0:
+                    v[i] += bg_amp if np.random.random() < 0.5 else -bg_amp
         # reset + schedule outgoing spikes
         out_slot = (step + D - 1) % D
         for c in range(N_CHUNKS):
@@ -276,6 +288,7 @@ class Brain:
         self._rng = np.random.default_rng(self.seed)
         self._gpu = None
         self._gpu_dirty = True
+        self.bg_idx = np.arange(n, dtype=np.int64)   # which neurons get background noise
         self.disable_plasticity()
         self.reset()
         self._gpu = _make_gpu_runner(self)
@@ -489,7 +502,8 @@ class Brain:
               self.pl_on, self.x_tr, self.da_tr, self.dan_ptr, self.dan_m, self.dan_a,
               self.pe_edge, self.pe_pre, self.pe_m, self.pe_w0, self.kc_idx, self.pl_c,
               self.kc_new, self.da_new, self.da_base, self.wad, self._decay_w, self._coef_w, p.b_w,
-              self.gj_a, self.gj_b, self.gj_k, self.gk_ptr, self.gk_tgt, self.gk_amt)
+              self.gj_a, self.gj_b, self.gj_k, self.gk_ptr, self.gk_tgt, self.gk_amt,
+              self.bg_idx, p.bg_rate_hz * p.dt * 1e-3, p.bg_amp_mv)
 
     def run(self, t_ms: float, stim: dict | None = None, record=None, seed: int | None = None):
         """Convenience: fresh trial with constant Poisson stimulus {neuron_index: rate_Hz}."""

@@ -106,6 +106,17 @@ def k_poisson(v, stim_idx, stim_p, stim_w, rng):
 
 
 @cuda.jit
+def k_noise(v, rfc_left, bg_idx, bg_p, bg_amp, rng, off):
+    j = cuda.grid(1)
+    if j < bg_idx.shape[0]:
+        if xoroshiro128p_uniform_float64(rng, off + j) < bg_p:
+            i = bg_idx[j]
+            if rfc_left[i] == 0:
+                s = bg_amp if xoroshiro128p_uniform_float64(rng, off + j) < 0.5 else -bg_amp
+                cuda.atomic.add(v, i, s)
+
+
+@cuda.jit
 def k_kicks(v, kick_idx, lo, hi, stim_w):
     j = cuda.grid(1) + lo
     if j < hi:
@@ -211,7 +222,7 @@ def k_plast_decay_da(da_tr, da_new, decay_da):
 
 STATE = ("v", "g", "rfc_left", "ring", "wad", "x_tr", "da_tr", "kc_new", "da_new", "da_base")
 STATIC = ("indptr", "post")
-PARAMS = ("rfc_len", "gain", "v_rest", "dan_ptr", "dan_m", "dan_a", "pe_edge", "pe_pre",
+PARAMS = ("rfc_len", "gain", "v_rest", "bg_idx", "dan_ptr", "dan_m", "dan_a", "pe_edge", "pe_pre",
           "pe_m", "pe_w0", "kc_idx", "gj_a", "gj_b", "gj_k", "gk_ptr", "gk_tgt", "gk_amt")
 
 
@@ -288,6 +299,8 @@ class CudaRunner:
             gate_b = cuda.device_array(max(1, self.n_m))
         zero = np.zeros(1, np.int32)
         kpos = 0
+        bg_p = p.bg_rate_hz * p.dt * 1e-3
+        n_bg = len(b.bg_idx)
         for s in range(n_steps):
             step = b.t_step + s
             slot = step % D
@@ -302,6 +315,8 @@ class CudaRunner:
                 k_gap_apply[_blocks(self.n_gap), TPB](d["v"], self.frozen, d["gj_a"], d["gj_b"], dv)
             if n_stim:
                 k_poisson[_blocks(n_stim), TPB](d["v"], d_stim_idx, d_stim_p, stim_w, self.rng)
+            if bg_p > 0.0:
+                k_noise[_blocks(n_bg), TPB](d["v"], d["rfc_left"], d["bg_idx"], bg_p, p.bg_amp_mv, self.rng, 0)
             lo = kpos
             while kpos < len(ks) and ks[kpos] == s:
                 kpos += 1

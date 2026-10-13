@@ -1,6 +1,8 @@
 @echo off
 rem Start Fly-Sim in Docker; uses the NVIDIA GPU automatically when one is available.
 cd /d "%~dp0"
+rem take the latest version from GitHub first
+where git >nul 2>nul && if exist .git (git pull --ff-only || echo git pull skipped)
 where nvidia-smi >nul 2>nul
 if %errorlevel%==0 (
   nvidia-smi >nul 2>nul
