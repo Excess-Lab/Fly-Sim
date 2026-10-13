@@ -38,12 +38,45 @@ def _regions(ann) -> np.ndarray:
 
 
 def _positions(ann) -> np.ndarray:
+    """Neuron somata in a common anatomical display frame, so FlyWire, BANC and Male CNS look alike.
+
+    The three datasets are imaged in different volumes (axes permuted, mirrored, different units).
+    Axes come from the brain itself: x = lateral (principal axis, + towards the fly's left),
+    y = dorso-ventral (+ ventral, towards the descending neurons' exit), z = antero-posterior
+    (+ posterior, antennal lobes are anterior of the Kenyon cells). Scale: 99th percentile of the
+    lateral half-width = 1. For display only, the VNC (dissected at different angles in BANC and
+    the Male CNS) is swung about the neck so that it hangs straight below the brain."""
     xyz = ann[["x", "y", "z"]].to_numpy(float)
     ok = ~np.isnan(xyz[:, 0])
-    c = np.median(xyz[ok], 0)
-    s = np.nanmax(np.abs(xyz[ok] - c))
-    out = (xyz - c) / s
-    return out.astype(np.float32)
+    sc = ann.super_class.astype(str)
+    vnc = sc.str.contains("vnc").to_numpy()
+    b = ok & ~vnc
+    c = np.median(xyz[b], 0)
+    X = xyz[b] - c
+    rng = np.random.default_rng(0)
+    smp = X[rng.choice(len(X), min(30000, len(X)), replace=False)]
+    e1, e2, e3 = np.linalg.svd(smp - smp.mean(0), full_matrices=False)[2]
+    side = ann.side.astype(str).str.lower().to_numpy()
+    med = lambda m: np.median(xyz[b & m], 0)  # noqa: E731
+    if (med(np.isin(side, ["left", "l"])) - med(np.isin(side, ["right", "r"]))) @ e1 < 0:
+        e1 = -e1
+    if (med(sc.str.contains("descending").to_numpy()) - c) @ e2 < 0:
+        e2 = -e2
+    t = ann.type.astype(str)
+    if (med(t.str.match(r"^(ORN_|lLN|v2LN)").to_numpy()) - med(t.str.match(r"^KC").to_numpy())) @ e3 > 0:
+        e3 = -e3
+    s = np.percentile(np.abs(X @ e1), 99)
+    out = (xyz - c) @ np.stack([e1, e2, e3]).T / s
+    if vnc.any():
+        y0 = 0.6
+        cy, cz = np.nanmedian(out[vnc & ok, 1]), np.nanmedian(out[vnc & ok, 2])
+        th = np.arctan2(cz, cy - y0)
+        m = ok & (out[:, 1] > y0)
+        dy, dz = out[m, 1] - y0, out[m, 2]
+        out[m, 1] = y0 + dy * np.cos(th) + dz * np.sin(th)
+        out[m, 2] = -dy * np.sin(th) + dz * np.cos(th)
+    out -= [0, 0.5 if vnc.any() else 0, 0]   # keep brain + VNC centred in the view
+    return (out / (1.6 if vnc.any() else 1.0)).astype(np.float32)
 
 
 def _apple_colors(state: dict):
@@ -78,7 +111,7 @@ def export(run_dir: Path, max_active_per_frame: int = 6000) -> Path:
         data["odor_sources"] = [{"pos": [-40, 0, 0], "label": "A (наказание)"},
                                 {"pos": [40, 0, 0], "label": "B"}]
     for name, fl in info["flies"].items():
-        _, ann = load(fl["sex"])
+        _, ann = load(fl.get("dataset") or fl["sex"])
         z = np.load(run_dir / f"spikes_{name}.npz")
         lens, idx, cnt = z["lens"], z["idx"], z["cnt"]
         starts = np.concatenate([[0], np.cumsum(lens)])

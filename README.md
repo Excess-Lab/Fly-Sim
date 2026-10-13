@@ -14,7 +14,7 @@ Configured, run and inspected in the browser. Every approximation is documented.
 <img alt="Connectomes" src="https://img.shields.io/badge/connectomes-FlyWire%20%7C%20BANC%20%7C%20Male%20CNS-DB2777">
 <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white">
 <img alt="License" src="https://img.shields.io/badge/license-MIT-lightgrey">
-<img alt="Release" src="https://img.shields.io/badge/release-0.3.0-C2410C">
+<img alt="Release" src="https://img.shields.io/badge/release-0.4.0-C2410C">
 </p>
 
 <p align="center"><b>English</b> · <a href="README.ru.md">Русский</a></p>
@@ -55,12 +55,18 @@ See [MODEL_SCOPE.md](MODEL_SCOPE.md) for what is and is not modelled,
 
 ### Nervous systems
 
-| | Female (reference) | Female, full CNS | Male, full CNS |
+| | Female | Male | Reference (not a fly in the world) |
 |---|---|---|---|
-| Connectome | FlyWire v783 | BANC 888 | Janelia Male CNS v1.0 |
-| Contains | brain + optic lobes | brain + optic lobes + ventral nerve cord | brain + optic lobes + ventral nerve cord |
-| Neurons / connections | 138,639 / 15.1 M | 181,627 / 13.6 M | 164,587 / 25.6 M |
-| Calibration | reference (Shiu et al. 2024) | per cell type to FlyWire / Male CNS | ×1/1.78, matched cell types |
+| Connectome | BANC 888 | Janelia Male CNS v1.0 | FlyWire v783 |
+| Contains | brain + optic lobes + ventral nerve cord | brain + optic lobes + ventral nerve cord | brain + optic lobes |
+| Neurons / connections | 181,627 ids (≈145k effective; glia, trachea, unannotated ids and neurons without a transmitter call are silenced) / 13.6 M | 164,587 (≈163.6k effective) / 25.6 M | 138,639 / 15.1 M |
+| Calibration | per cell type to FlyWire (brain) / Male CNS (VNC) | per cell type to FlyWire (brain), ×1/1.78 (VNC) | Shiu et al. 2024, validated spike for spike |
+
+Both sexes have a complete central nervous system. FlyWire is used to validate the simulator
+and to calibrate cell types; it is not placed in the world. Calibration is a fit: it rescales
+neurons per type and so suppresses sex differences in input strength; the neurons used as test
+read-outs (MN9, PPL1, PAM, MBONs, tested PNs) are held out of it (A09f,
+`scripts/calibration_report.py`).
 
 - **Neuron model:** leaky integrate-and-fire (Shiu et al. 2024), event-driven and parallel; it
   reproduces the published Brian2 model spike for spike.
@@ -96,7 +102,9 @@ hunger-dependent gain).
 
 Several apples (age, cut/intact, size, position) that ferment, turn to vinegar and mould;
 container air (CO₂/O₂ mass balance from fruit, microbes, soil and flies, with ventilation);
-wind; seasons; soil; apple seeds that need cold stratification before they germinate, then grow
+still air in a container or a **garden climate** (sun position and light for 50° N, day and
+night, daily temperature cycle, Markov weather from clear to storm, ground-level wind with
+gusts); seasons; soil; apple seeds that need cold stratification before they germinate, then grow
 into seedlings and fruiting trees; a life cycle from egg to adult; individual mortality
 (Gompertz ageing, starvation, heat, cold, anoxia, mould toxin).
 
@@ -124,11 +132,11 @@ scripts/download_data.sh && .venv/bin/python -m flysim.live
 ## Using the web app
 
 1. **Observations** (home): every running and saved run. Several runs can work at once; each can be
-   opened in its own browser tab.
+   opened in its own browser tab; finished runs can be deleted.
 2. **New observation:** choose a *free simulation* (world size in metres, seasons, soil, wind, air,
-   apples, flies, female nervous system, injuries, scientific controls, optional time limits) or a
+   climate, apples, flies, injuries, scientific controls, optional time limits) or a
    *prepared experiment* (protocol, group, seed).
-3. **Observation:** arena, every fly's whole brain (each neuron at its real position), internal
+3. **Observation:** arena (darker at night, wind arrow), weather and air readouts, every fly's whole brain (each neuron at its real position), internal
    state, body schema, apple chemistry with reference values. While running you can add flies and
    apples. Any moment can be replayed.
 4. **Chronicle (god panel):** a timeline of everything detected — fights, courtship, mating, eggs,
@@ -173,9 +181,11 @@ punishment rates are functional neural correlates, not measurements of experienc
 
 Validated: spike-exact reproduction of the reference model; sugar → feeding motor neuron and
 bitter suppression; network stability; CO₂ activates punishment dopamine neurons innately;
-hunger-dependent feeding emerges; timing-dependent plasticity; BANC female close to the FlyWire
-female on identical tests; noxious leg input reaches punishment dopamine neurons through the full
-CNS. Open: courtship and aggression have not yet emerged; the VNC produces no stepping rhythm;
+hunger increases feeding in closed loop (a test of the hand-set sugar-receptor gain A14 and proboscis threshold, not an emergent property); timing-dependent plasticity; BANC female close to the FlyWire
+reference on sugar, odour and stability tests; noxious leg input reaches punishment dopamine neurons through the full
+CNS. Differences between datasets are diagnosed, not tuned away: the male's CO₂ → punishment
+dopamine path is silent because of its wiring, and bitter suppresses feeding less in BANC
+(KNOWN_ISSUES #6). Open: courtship and aggression have not yet emerged; the VNC produces no stepping rhythm;
 the stability of the antennal lobe depends on one probably wrong transmitter label
 (KNOWN_ISSUES #5). Metacognition is not added as a separate module: if flies have it, it would
 have to arise from the simulated connectome itself, so only candidate indicators are tracked.
@@ -221,9 +231,9 @@ NeuroMechFly v2 (Wang-Chen et al. 2024).
 flysim/brain      spiking simulator, plasticity, brain factory and calibration
 flysim/data       FlyWire, BANC and Male CNS loaders, annotations
 flysim/agent      senses, metabolism, motor readout, motor chain, bodies, physics, mortality, fly
-flysim/world      apples, atmosphere, plants, population, world
+flysim/world      apples, atmosphere, weather, plants, population, world
 flysim/sim        experiments, protocols, chronicle, event log, provenance
-flysim/live       web app
+flysim/live       web app (Lit components in flysim/live/static)
 scripts           data download, validation, series, probes
 ```
 
@@ -231,6 +241,7 @@ scripts           data download, validation, series, probes
 
 | Version | Content |
 |---|---|
+| 0.4.0 | Female always with full CNS (BANC), garden climate (day/night, weather, gusty wind), redesigned web app (Lit), deleting runs, aligned brain views, dataset discrepancies diagnosed, scientific audit |
 | 0.3.0 | Multi-run web app with god panel (chronicle, region dynamics, passports), prepared experiments from the browser, BANC female calibrated per cell type, pain pathway through the full CNS, individual mortality and natural end, wind and soil respiration, MIT license |
 | 0.2.0 | Mechanism modes and provenance, protocols and statistics, male motor chain, BANC female, body schema, several apples, trees, seasons |
 | 0.1.0 | Connectome brains, NeuroMechFly bodies, physics, rotting apple, atmosphere, learning, reproduction, web app, Docker |

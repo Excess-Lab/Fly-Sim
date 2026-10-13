@@ -14,3 +14,4 @@ their public sources, and each remains under its own license and citation requir
 | DoOR odour response database (derived tables in data/raw/odor) | github.com/ropensci/DoOR.data | LGPL-3 | Münch & Galizia 2016 |
 | NeuroMechFly v2 / flygym | github.com/NeLy-EPFL/flygym | Apache-2.0 | Wang-Chen et al. 2024 (Nature Methods) |
 | MuJoCo | github.com/google-deepmind/mujoco | Apache-2.0 | Todorov et al. 2012 |
+| Lit 3.2.1 (bundled: flysim/live/static/vendor/lit-core.min.js) | github.com/lit/dist | BSD-3-Clause, © Google LLC | — |

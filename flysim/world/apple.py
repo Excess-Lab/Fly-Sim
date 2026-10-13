@@ -6,8 +6,8 @@ Two-stage microbial succession on damaged fruit at ~25 C:
 Logistic growth with Monod substrate limitation (standard fermentation kinetics).
 
 ASSUMPTION(A40): rate constants are order-of-magnitude values for fruit at room temperature:
-yeast doubling ~2-4 h on fruit sugar, visible fermentation within ~1 day, ethanol peaking at
-~2-4 % w/w after ~2-3 days, acetic acid rising over days 3-7 (fruit/cider fermentation
+yeast doubling ~2-4 h on fruit sugar, visible fermentation within ~1 day; in the model ethanol
+peaks at ~5 g/100 g on day 4 and acetic acid reaches ~5 g/100 g by day 10 (fruit/cider fermentation
 literature; Becher et al. 2012 for yeast-fruit volatiles). Apple flesh sugar ~10-13 g/100 g
 (fructose ~6, glucose ~2, sucrose ~2.5; USDA FoodData Central).
 """
@@ -53,6 +53,8 @@ class AppleState:
     yeast: float = 0.001          # relative biomass 0..1
     aab: float = 0.0005
     ferm_rate: float = 0.0        # g/100g/h current sugar fermentation
+    mold_rate: float = 0.0        # g/100g/h substrate respired by mould (sugar, then acids)
+    aab_rate: float = 0.0         # g/100g/h ethanol oxidised to acetic acid
     mold: float = 0.0             # fraction of surface covered by mould 0..1
     patulin: float = 0.0          # relative mycotoxin level 0..1
 
@@ -92,11 +94,23 @@ class Apple:
                 s.ethanol -= conv
                 s.acetic += p.yield_ac * conv
                 s.aab += g_a * dt_h
+                s.aab_rate = conv / dt_h
+            else:
+                s.aab_rate = 0.0
+            # mould (Penicillium) respires sugar first, then organic acids; growth and patulin
+            # stop when the substrate is gone (mass balance with the air, A90)
             o2_mold = self.o2_pct / (self.o2_pct + 2.0)
-            g_m = qt_mold * o2_mold * p.mu_mold * s.mold * (1 - s.mold)
+            sub = s.sugar + s.acetic
+            mono_m = sub / (p.k_sugar + sub)
+            g_m = qt_mold * o2_mold * p.mu_mold * s.mold * (1 - s.mold) * mono_m
             s.mold += g_m * dt_h
-            s.sugar = max(0.0, s.sugar - qt_mold * p.q_mold_sugar * s.mold * dt_h)
-            s.patulin += 0.02 * s.mold * dt_h
+            need = qt_mold * o2_mold * p.q_mold_sugar * s.mold * mono_m * dt_h
+            from_sugar = min(s.sugar, need)
+            from_acid = min(s.acetic, need - from_sugar)
+            s.sugar -= from_sugar
+            s.acetic -= from_acid
+            s.mold_rate = (from_sugar + from_acid) / dt_h
+            s.patulin += 0.02 * s.mold * mono_m * dt_h
             s.patulin = min(1.0, s.patulin)
             # esters are volatile and hydrolysed: slow loss
             s.esters *= np.exp(-dt_h / 48.0)
@@ -133,17 +147,20 @@ class Apple:
 
     def co2_flux_cm3_s(self) -> float:
         s = self.s
-        sugar_g_h = (s.ferm_rate + self.p.q_mold_sugar * s.mold * 3.0) * self.mass_g() / 100.0
-        mol_h = sugar_g_h / 180.16 * 2.0
+        # fermentation: 2 CO2 per hexose; mould respiration: 6 CO2 per hexose (acetic acid gives
+        # the same CO2 per gram, 2 per 60 g)
+        mol_h = (s.ferm_rate / 180.16 * 2.0 + s.mold_rate / 180.16 * 6.0) * self.mass_g() / 100.0
         return mol_h * 24450.0 / 3600.0
 
     def co2_surface_pct(self) -> float:
         return 100.0 * self.co2_flux_cm3_s() / (4 * np.pi * 0.16 * self.p.radius_mm / 10)
 
     def osmolarity(self) -> float:
-        """Osm/kg of the juice from dissolved sugars (hexose 180 g/mol) and acetic acid."""
+        """Osm/kg of the juice: all dissolved solutes count, ionised or not (sugars as hexose
+        180 g/mol, ethanol 46, acetic acid 60). ASSUMPTION(A51b): water GRNs respond to total
+        osmolarity; permeant solutes (ethanol) may act less on real cells."""
         s = self.s
-        return s.sugar * 10 / 180.0 + s.acetic * 10 / 60.0 * 0.05  # acetic acid is weak (~5% ionised)
+        return s.sugar * 10 / 180.0 + s.ethanol * 10 / 46.07 + s.acetic * 10 / 60.05
 
     def surface_taste(self) -> dict:
         """Physical surface chemistry. sugar normalised to a sweet meal (1 = ~10 g/100 g)."""

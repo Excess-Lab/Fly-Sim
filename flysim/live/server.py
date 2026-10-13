@@ -51,14 +51,24 @@ SCHEMA = {
         "size_m": {"label": "Размер мира (сторона)", "unit": "м", "min": 0.1, "max": 5.0, "step": 0.05,
                    "default": 0.3, "norm": "садок ~0.2–0.3 м, комната 3–5 м; в неподвижном воздухе "
                                          "запахи слабеют как R/r — в большом мире мухи находят еду дольше"},
+        "climate": {"label": "Климат", "type": "select",
+                    "options": {"container": "контейнер: постоянная температура и свет",
+                                "garden": "сад: день и ночь, погода, переменчивый ветер"},
+                    "default": "container",
+                    "norm": "сад — умеренный пояс 50° с. ш. (A98): солнце и освещённость по часу и дню года, "
+                            "суточный ход температуры, смена погоды, ветер у земли с порывами"},
+        "start_hour": {"label": "Время суток на старте", "unit": "ч", "min": 0, "max": 23.5, "step": 0.5,
+                       "default": 8.0, "norm": "только для сада"},
         "seasonal": {"label": "Смена сезонов (умеренный климат)", "type": "bool", "default": False,
                      "norm": "среднее 10 °C ± 12 °C за год; зимой мухи в холодовой коме, семена проходят стратификацию"},
         "soil": {"label": "Почва под яблоками", "type": "bool", "default": False,
                  "norm": "без почвы семена не прорастут"},
         "moist": {"label": "Влажность почвы", "type": "bool", "default": False,
                   "norm": "семенам нужна влага; влажная почва дышит сильнее (потребляет O₂, выделяет CO₂)"},
-        "wind_speed": {"label": "Ветер", "unit": "м/с", "min": 0.0, "max": 3.0, "step": 0.05, "default": 0.0,
-                       "norm": "0 — неподвижный воздух (садок); сквозняк ~0.1–0.5; мухи летают при ≲2–3 м/с"},
+        "wind_speed": {"label": "Ветер в контейнере", "unit": "м/с", "min": 0.0, "max": 3.0, "step": 0.05, "default": 0.0,
+                       "norm": "0 — неподвижный воздух (садок); сквозняк ~0.1–0.5; мухи летают при ≲2–3 м/с. В саду ветер задаёт погода"},
+        "garden_wind": {"label": "Сила ветра в саду", "unit": "×", "min": 0.0, "max": 3.0, "step": 0.1, "default": 1.0,
+                        "norm": "1 — как в природе у земли (~0.3–0.6 м/с в ясную погоду, >1 м/с в грозу); 0 — безветрие"},
         "wind_dir_deg": {"label": "Ветер дует в сторону", "unit": "°", "min": 0, "max": 359, "step": 5,
                          "default": 0, "norm": "0° = вдоль оси X"},
     },
@@ -72,16 +82,11 @@ SCHEMA = {
         "males": {"label": "Самцы", "unit": "", "min": 0, "max": 10, "step": 1, "default": 1,
                   "norm": "Male CNS, 164 587 нейронов каждый"},
         "females": {"label": "Самки", "unit": "", "min": 0, "max": 10, "step": 1, "default": 1,
-                    "norm": "FlyWire, 138 639 нейронов каждая"},
+                    "norm": "BANC: мозг + брюшная нервная цепочка, 181 627 нейронов каждая"},
         "starved_h": {"label": "Голодали перед стартом", "unit": "ч", "min": 0.0, "max": 48.0,
                       "step": 1.0, "default": 18.0, "norm": "кормовые опыты: 18–24 ч"},
         "virgin": {"label": "Самки девственницы", "type": "bool", "default": True,
                    "norm": "спаренная самка не готова к спариванию и откладывает яйца"},
-        "female_connectome": {"label": "Нервная система самки", "type": "select",
-                              "options": {"female": "FlyWire v783 — мозг (проверен)",
-                                          "female_banc": "BANC — мозг + VNC (экспериментально)"},
-                              "default": "female",
-                              "norm": "FlyWire без брюшной нервной цепочки; BANC пока не эквивалентен (KNOWN_ISSUES #6)"},
     },
     "injuries": {
         **{leg: {"label": f"Нога: {name}", "type": "select",
@@ -107,7 +112,7 @@ SCHEMA = {
         "enabled": {"label": "Горячая зона на полу", "type": "bool", "default": False,
                     "norm": "как в тепловой арене Ofstad et al. 2011"},
         "temp_c": {"label": "Температура зоны", "unit": "°C", "min": 25.0, "max": 45.0,
-                   "step": 0.5, "default": 38.0, "norm": ">30 °C — сигнал наказания"},
+                   "step": 0.5, "default": 44.0, "norm": "ноцицепторы лапок отвечают выше ~40 °C (A80); 44 °C — болезненно, как на горячей пластине"},
         "radius_mm": {"label": "Радиус зоны", "unit": "мм", "min": 5.0, "max": 30.0, "step": 1.0,
                       "default": 15.0, "norm": ""},
     },
@@ -115,25 +120,24 @@ SCHEMA = {
         "plasticity": {"label": "Обучение (пластичность KC→MBON)", "type": "bool", "default": True,
                        "norm": "выкл. — контроль «только рефлексы»"},
         "us_shortcut": {"label": "Наказание → дофамин PPL1 по данным опытов (A24)", "type": "bool",
-                        "default": True, "norm": "действует только у самки FlyWire (нет VNC) и для ударов тока; "
-                                                 "у мух с VNC жар идёт через ноцицепторы по коннектому"},
+                        "default": True, "norm": "действует только для ударов тока; жар идёт через ноцицепторы ног по коннектому"},
         "reward_shortcut": {"label": "Сахар → дофамин PAM по данным опытов (A25)", "type": "bool",
                             "default": True, "norm": "выкл. — только путь по коннектому"},
         "spontaneous": {"label": "Спонтанная ходьба (A30)", "type": "bool", "default": True,
                         "norm": "выкл. — двигается только по командам мозга"},
     },
     "run": {
-        "session_s": {"label": "Сессия (нейрон-в-нейрон)", "unit": "с", "min": 5, "max": 600,
-                      "step": 5, "default": 60, "norm": "~×0.1 от реального времени на M2"},
-        "ff_hours": {"label": "Перемотка между сессиями", "unit": "ч", "min": 0, "max": 72,
-                     "step": 1, "default": 24, "norm": "0 — без перемотки"},
+        "session_s": {"label": "Длина подробного отрезка", "unit": "с", "min": 5, "max": 600,
+                      "step": 5, "default": 60, "norm": "сколько секунд жизни считать полностью: каждый нейрон, каждая мышца, физика тела. Потом мир перематывается"},
+        "ff_hours": {"label": "Перемотка между отрезками", "unit": "ч", "min": 0, "max": 72,
+                     "step": 1, "default": 24, "norm": "часы мира, которые проходят быстро: яблоки гниют, мухи голодают, стареют, развиваются яйца. 0 — без перемотки"},
         "limit_days": {"label": "Лимит мирового времени", "unit": "дн", "min": 0, "max": 3650, "step": 1,
                        "default": 0, "norm": "0 — без лимита; симуляция остановится сама, когда мир проживёт столько"},
         "limit_compute_h": {"label": "Лимит времени счёта", "unit": "ч", "min": 0, "max": 72, "step": 0.5,
                             "default": 0, "norm": "0 — без лимита; сколько реальных часов считать"},
-        "max_adults": {"label": "Макс. мух с мозгом", "unit": "", "min": 1, "max": 30, "step": 1,
-                       "default": 4, "norm": "~0.4 ГБ памяти и ~10 с счёта на 1 с жизни на муху; "
-                                             "на Mac 8 ГБ разумно ≤4–6"},
+        "max_adults": {"label": "Предел взрослых мух", "unit": "", "min": 1, "max": 30, "step": 1,
+                       "default": 4, "norm": "у каждой взрослой мухи свой полный мозг (~0.5 ГБ памяти, ~10 с счёта на 1 с жизни). "
+                                             "Мухи, вылупившиеся сверх предела, только учитываются в численности, без мозга и тела. 8 ГБ: ≤4–6"},
     },
 }
 
@@ -185,6 +189,13 @@ class Simulation:
                            plants=PlantWorld(soil=bool(wd["soil"]), moist=bool(wd["moist"])),
                            wind=(float(wd.get("wind_speed", 0)) * np.cos(np.radians(float(wd.get("wind_dir_deg", 0)))),
                                  float(wd.get("wind_speed", 0)) * np.sin(np.radians(float(wd.get("wind_dir_deg", 0))))))
+        if wd.get("climate") == "garden":
+            from flysim.world.weather import Weather
+            self.world.weather = Weather(seed=int(cfg.get("seed", 0) or 0), seasonal=bool(wd["seasonal"]),
+                                         base_temp_c=float(env["temp_c"]),
+                                         start_hour=float(wd.get("start_hour", 8.0)),
+                                         wind_scale=float(wd.get("garden_wind", 1.0)))
+            self.world.apply_weather()
         for k in range(len(apples)):
             self.world.plants.add_apple_seeds(k)
         # each apple has been lying here for its own age before the flies arrive
@@ -245,8 +256,6 @@ class Simulation:
                           us_reward_shortcut=bool(sci.get("reward_shortcut", True)),
                           spontaneous=bool(sci["spontaneous"]),
                           injuries=self._injuries_for(sex, self.n_made[sex]),
-                          connectome=(self.cfg["flies"].get("female_connectome", "female")
-                                      if sex == "female" else ""),
                           body="nmf"), pos=pos, yaw=yaw)
         if note:
             f.events.append((round(f.t, 3), note))
@@ -407,6 +416,7 @@ class Simulation:
             self.error = f"{e}\n{traceback.format_exc()}"
             self.status = "ошибка: " + str(e)
         finally:
+            self.stop_flag = True
             try:
                 self.snapshot(0.0)
                 self.chron.save_logs(self.log, self.manifest())
@@ -553,6 +563,24 @@ class App:
         self.threads[sim.run_id] = th
         return sim.run_id
 
+    def delete(self, rid):
+        """Remove a finished observation and its saved files (results/runs/<id>)."""
+        import re
+        import shutil
+        from flysim.sim.chronicle import RUNS
+        if not re.fullmatch(r"[\w.\-]+", rid or ""):
+            return False, "неверный id"
+        sim = self.sims.get(rid)
+        th = self.threads.get(rid)
+        if sim is not None and th is not None and th.is_alive():
+            return False, "наблюдение ещё идёт — сначала остановите его"
+        self.sims.pop(rid, None)
+        self.threads.pop(rid, None)
+        d = (RUNS / rid).resolve()
+        if d.parent == RUNS.resolve() and d.is_dir():
+            shutil.rmtree(d)
+        return True, ""
+
     def start_experiment(self, protocol, group, seed):
         ex = ExperimentRun(protocol, group, int(seed))
         th = threading.Thread(target=ex.run, daemon=True)
@@ -633,6 +661,9 @@ def make_handler(app: App):
             if u.path == "/api/experiment":
                 return self._json({"run_id": app.start_experiment(body["protocol"], body["group"],
                                                                   body.get("seed", 100))})
+            if len(parts) == 4 and parts[:2] == ["api", "run"] and parts[3] == "delete":
+                ok, msg = app.delete(parts[2])
+                return self._json({"ok": ok, "error": None if ok else msg}, 200 if ok else 409)
             if len(parts) == 4 and parts[:2] == ["api", "sim"]:
                 sim = app.get(parts[2])
                 if sim is None:
@@ -655,6 +686,14 @@ def make_handler(app: App):
             parts = [unquote(x) for x in u.path.strip("/").split("/")]
             if u.path in ("/", "/index.html"):
                 return self._send(PAGE.read_text(), "text/html; charset=utf-8")
+            if u.path.startswith("/static/"):
+                root = (PAGE.parent / "static").resolve()
+                f = (PAGE.parent / u.path.lstrip("/")).resolve()
+                if root not in f.parents or not f.is_file():
+                    return self._json({"error": "не найдено"}, 404)
+                ctype = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+                         ".svg": "image/svg+xml"}.get(f.suffix, "application/octet-stream")
+                return self._send(f.read_bytes(), ctype)
             if u.path == "/api/schema":
                 from flysim.sim.protocol import PROTOCOLS
                 return self._json({"schema": SCHEMA, "apple_norms": APPLE_NORMS,
@@ -667,7 +706,7 @@ def make_handler(app: App):
                 for rid, sim in reversed(list(app.sims.items())):
                     w = sim.world
                     out.append({"run_id": rid, "title": sim.title, "status": sim.status,
-                                "running": not sim.stop_flag, "error": bool(sim.error),
+                                "running": not sim.stop_flag, "paused": bool(getattr(sim, "paused", False)), "error": bool(sim.error),
                                 "kind": "experiment" if isinstance(sim, ExperimentRun) else "free",
                                 "flies": len(w.flies) if w else 0,
                                 "clock_h": round(w.clock_h, 2) if w else 0,
@@ -689,7 +728,7 @@ def make_handler(app: App):
                     except Exception:
                         pass
                     return self._json({"run_id": parts[2], "title": sim.title, "status": sim.status,
-                                       "running": not sim.stop_flag, "error": sim.error,
+                                       "running": not sim.stop_flag, "paused": bool(getattr(sim, "paused", False)), "error": sim.error,
                                        "kind": "experiment" if isinstance(sim, ExperimentRun) else "free",
                                        "config": getattr(sim, "cfg", None), "manifest": man})
                 if what == "frames":

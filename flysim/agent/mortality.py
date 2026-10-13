@@ -5,11 +5,19 @@ ASSUMPTION(A94), Drosophila melanogaster literature (orders of magnitude):
              (median adult lifespan ~50 d; Pletcher et al. 2000; Mair et al. 2003);
              rate scaled by Q10 = 2.5 with temperature (flies live ~2x longer at 18 C);
              mould toxin raises the hazard (health factor, A72)
-  starvation death after ~2-3 days at zero energy; individual threshold N(60 h, 12 h)
+  starvation energy reserve 1 -> 0 in ~24 h (A10), then death after an individual threshold
+             N(40 h, 10 h) at zero energy: median ~64 h from fully fed (range ~45-85 h).
+             Well-fed adult females with water die after ~2-3 days of starvation (lab stocks
+             roughly 50-70 h; males earlier; selection lines differ widely: review Rion & Kawecki
+             2007). Water is always available in the model (no desiccation).
   heat       knockdown at body temperature > 39 C; death after N(15, 5) min above 40 C
              (Huey et al. 1992; Jørgensen et al. 2019)
   cold       death after N(72, 24) h below 5 C (chill injury; MacMillan & Sinclair 2011)
-  anoxia     death after N(4, 1) h below 1 % O2 (Haddad et al. 1997)
+  anoxia     death after N(12, 3) h below 1 % O2. Adult flies fall into reversible anoxic
+             stupor within seconds and recover fully after ~4 h of anoxia (Haddad et al. 1997;
+             Krishnan et al. 1997), so 4 h is a survival, not a lethal, time; longer anoxia is
+             lethal but published LT50 values vary with temperature and strain. 12 +- 3 h is an
+             order-of-magnitude choice, not a measured value.
 """
 from dataclasses import dataclass, field
 
@@ -35,10 +43,10 @@ class Mortality:
 
     def __post_init__(self):
         r = self.rng
-        self.starve_h = max(24.0, r.normal(60.0, 12.0))
+        self.starve_h = max(12.0, r.normal(40.0, 10.0))
         self.heat_min = max(3.0, r.normal(15.0, 5.0))
         self.cold_h = max(12.0, r.normal(72.0, 24.0))
-        self.anoxia_h = max(1.0, r.normal(4.0, 1.0))
+        self.anoxia_h = max(5.0, r.normal(12.0, 3.0))
 
     def step(self, dt_s: float, energy: float, body_temp_c: float, air_temp_c: float,
              o2_pct: float, health: float = 1.0) -> str | None:

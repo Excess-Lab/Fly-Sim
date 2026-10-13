@@ -30,7 +30,8 @@ LEG_NERVE = {"f": "ProLN", "m": "MesoLN", "h": "MetaLN"}
 class NMFArena:
     """One MuJoCo world shared by all flies: floor + apple sphere."""
 
-    def __init__(self, apples, _unused, names_poses, half_size: float = 1000.0, arena: float = None):
+    def __init__(self, apples, _unused, names_poses, half_size: float = 1000.0, arena: float = None,
+                 seeds: dict = None):
         """apples: list of (center xyz, radius) in mm."""
         if not isinstance(apples, list):            # backward compatible (center, r) call
             apples = [(apples, _unused)]
@@ -71,7 +72,7 @@ class NMFArena:
             order = fly.get_actuated_jointdofs_order("position")
             c = HybridTurningController(timestep=self.sim.timestep, preprogrammed_steps=self.pps,
                                         output_dof_order=order)
-            c.reset(seed=k)
+            c.reset(seed=int((seeds or {}).get(name, k)))   # per-fly seed, independent replicates
             self.ctrl[name] = c
             apply_locomotion_action(self.sim, name, LocomotionAction(
                 joint_angles=self.pps.default_pose_by_dof_order(order),

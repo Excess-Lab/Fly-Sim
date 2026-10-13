@@ -37,10 +37,10 @@ class Atmosphere:
             for ap in apples:
                 s = ap.s
                 mass_g = 0.85 * 4 / 3 * np.pi * (ap.p.radius_mm / 10) ** 3
+                # amounts actually converted in the apple's last step (substrate-limited)
                 ferm_g_h += s.ferm_rate * mass_g / 100.0                       # sugar fermented
-                mold_g_h += ap.p.q_mold_sugar * s.mold * mass_g / 100.0      # sugar respired
-                acet_g_h += ap.p.q_eth * s.aab * mass_g / 100.0 * \
-                    (self.o2_pct / (self.o2_pct + ap.p.k_o2_pct))           # ethanol oxidised
+                mold_g_h += s.mold_rate * mass_g / 100.0                       # substrate respired
+                acet_g_h += s.aab_rate * mass_g / 100.0                        # ethanol oxidised
             # soil respiration (roots absent; microbes): ~4 umol CO2 m-2 s-1 at 25 C in moist soil,
             # Q10 = 2, dry soil ~0.3x; RQ ~1 (Raich & Schlesinger 1992; Lloyd & Taylor 1994) A95
             soil_mol_h = soil_area_m2 * 4e-6 * 3600 * 2.0 ** ((temp_c - 25.0) / 10.0) * (1.0 if soil_moist else 0.3)

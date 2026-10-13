@@ -3,8 +3,14 @@
 Development of D. melanogaster at 25 C (Ashburner 1989; Ashburner et al. 2005):
   egg ~1 d, larva ~4 d (three instars), pupa ~4.5 d  -> eclosion ~9.5 d after laying.
 ASSUMPTION(A63): larval survival rises with yeast (main larval food) and falls with acetic acid
->4 g/100g; egg production of a mated female on fermenting fruit ~2 eggs/h (~50/day; typical
-lab fecundity 50-80/day), only while she can reach the fruit.
+>4 g/100g.
+ASSUMPTION(A63b): egg laying between live sessions is SCRIPTED, not produced by the brain:
+every living mated female lays Poisson(2 eggs/h x hours x min(1, 0.3 + yeast)) eggs (~50/day;
+typical lab fecundity 50-80/day). Her position, oviDN activity and whether she can actually
+reach the fruit (cold coma, hypoxia, walls) are ignored. The site is chosen in proportion to
+where she laid eggs herself (brain-driven, A61) during live sessions; if she has not laid any
+yet, the most yeasty, least mouldy fruit (Becher et al. 2012). Live time spent on each fruit is
+not recorded by the organism, so it cannot be used.
 ASSUMPTION(A64): offspring get the same connectome as their parent of that sex (only one
 connectome per sex exists); individuality comes from noise seeds and their own experience.
 Larvae are not simulated neuron-by-neuron (the larval connectome is a different nervous system).
@@ -24,6 +30,7 @@ class Brood:
     pos: tuple
     alive: bool = True
     apple_idx: int = 0
+    offline: bool = False      # laid by the scripted off-line rule (A63b), not by the brain
 
     def stage(self, now_h):
         age_d = (now_h - self.laid_h) / 24
@@ -45,9 +52,19 @@ class Population:
     max_adults: int = 4            # RAM limit on an 8 GB Mac (each brain ~0.3-0.5 GB)
     lifespan_d: float = 45.0
 
-    def lay(self, now_h, mother, father, pos, n=1, apple_idx=0):
+    def lay(self, now_h, mother, father, pos, n=1, apple_idx=0, offline=False):
         for _ in range(n):
-            self.brood.append(Brood(now_h, mother, father, tuple(np.round(pos, 2)), apple_idx=apple_idx))
+            self.brood.append(Brood(now_h, mother, father, tuple(np.round(pos, 2)),
+                                    apple_idx=apple_idx, offline=offline))
+
+    def site_weights(self, mother, n_apples):
+        """A63b: oviposition-site preference of one female = share of the eggs she laid herself
+        (brain-driven, A61) on each fruit. None if she has not laid any yet."""
+        w = np.zeros(n_apples)
+        for b in self.brood:
+            if b.mother == mother and not b.offline and b.apple_idx < n_apples:
+                w[b.apple_idx] += 1
+        return w / w.sum() if w.sum() > 0 else None
 
     def survival_per_day(self, apple) -> float:
         """ASSUMPTION(A73): mould competes with larvae and its toxins kill them (Rohlfs 2005;
@@ -60,17 +77,21 @@ class Population:
     def fast_forward(self, now_h, hours, apples, flies):
         """Advance the life cycle by `hours` off-line. Returns list of brood ready to eclose."""
         apples = apples if isinstance(apples, (list, tuple)) else [apples]
-        # females prefer fermenting, yeasty fruit for oviposition (Becher et al. 2012)
-        best = max(range(len(apples)), key=lambda i: apples[i].s.yeast - 0.2 * apples[i].s.mold)
-        ap = apples[best]
+        # ASSUMPTION(A63b): scripted off-line egg laying (see module docstring)
+        default = max(range(len(apples)), key=lambda i: apples[i].s.yeast - 0.2 * apples[i].s.mold)
         for f in flies:
-            if f.cfg.sex == "female" and getattr(f, "mated", False):
-                lam = self.eggs_per_h * hours * min(1.0, 0.3 + ap.s.yeast)
-                k = self.rng.poisson(lam)
-                if k:
-                    top = ap.center + np.array([0, 0, ap.p.radius_mm])  # on the fruit surface
-                    self.lay(now_h, f.cfg.name, getattr(f, "mate", "?"), top, k, apple_idx=best)
-                    f.events.append((round(f.t, 3), f"laid {k} eggs off-line ({hours:.0f} h)"))
+            if f.cfg.sex != "female" or not getattr(f, "mated", False) or getattr(f, "dead", None):
+                continue
+            w = self.site_weights(f.cfg.name, len(apples))
+            idx = self.rng.choice(len(apples), p=w) if w is not None else default
+            ap = apples[idx]
+            lam = self.eggs_per_h * hours * min(1.0, 0.3 + ap.s.yeast)
+            k = self.rng.poisson(lam)
+            if k:
+                top = ap.center + np.array([0, 0, ap.p.radius_mm])  # on the fruit surface
+                self.lay(now_h, f.cfg.name, getattr(f, "mate", "?"), top, k, apple_idx=idx,
+                         offline=True)
+                f.events.append((round(f.t, 3), f"laid {k} eggs off-line ({hours:.0f} h, scripted A63b)"))
         # mortality applies to the time each individual spends as larva/pupa within the interval
         surv_by_apple = [self.survival_per_day(a) for a in apples]
         ready = []

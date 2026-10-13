@@ -29,7 +29,9 @@ class FlyConfig:
     seed: int = 0
     body: str = "nmf"   # always NeuroMechFly physics; "simple" kept only for unit tests
     injuries: dict = None  # experimenter-set lesions (body_schema.BodySchema.from_config)
-    connectome: str = ""   # "" = default for the sex; "female_banc" = female full CNS (BANC)
+    # "" = default for the sex: female -> BANC 888 (brain + VNC), male -> Male CNS v1.0.
+    # "female" (FlyWire, brain only) is kept as the calibration / validation reference.
+    connectome: str = ""
 
 
 class Fly:
@@ -37,12 +39,12 @@ class Fly:
 
     def __init__(self, cfg: FlyConfig, pos, yaw):
         self.cfg = cfg
-        ds = cfg.connectome or cfg.sex
+        ds = cfg.connectome or {"female": "female_banc"}.get(cfg.sex, cfg.sex)
         con, ann = load(ds)
         self.ann = ann
         self.dataset = ds
         self.dataset_name = {"female": "FlyWire v783 (brain only)",
-                             "female_banc": "BANC 888 (brain + VNC, experimental)",
+                             "female_banc": "BANC 888 (brain + VNC)",
                              "male": "Janelia Male CNS v1.0 (brain + VNC)"}[ds]
         self.brain, _ = make_brain(ds, seed=cfg.seed)
         from flysim.agent.body_schema import BodySchema
@@ -58,7 +60,7 @@ class Fly:
         self.olf = Olfaction(ann)
         self.gust = Gustation(ann)
         self.thermo = Thermo(ann)
-        self.vision = Vision(con, ann, cfg.sex)
+        self.vision = Vision(con, ann, ds)
         self.hearing = Hearing(ann)
         self.intero = Interoception(ann)
         self.windsense = WindSense(ann)
@@ -163,17 +165,24 @@ class Fly:
         t_surf = (t_floor * n_floor + t_air * (n_any - n_floor)) / n_any if n_any else t_air
         temp = self.thermal.step(t_air, t_surf, n_any / 6.0, 0.01)
         r_th = self.thermo.rates(temp)
-        # leg nociceptors: noxious substrate temperature under each leg (>40 C), male VNC
+        # leg nociceptors: noxious substrate temperature under each leg (>40 C), flies with a VNC.
+        # ASSUMPTION(A24b): an electric shock through the floor grid drives the nociceptors of
+        # every leg touching the floor at 150 Hz (no shock-specific receptors are annotated).
+        shock = world.shock_at(self)
+        if shock > 0:
+            self.was_shocked = True
         r_noci = np.zeros(len(self.noci_idx))
         if len(self.noci_idx):
             off = 0
             for leg, ids in self.leg_noci.items():
-                hot = t_floor if contacts.get(leg) == "floor" else t_air
-                r_noci[off:off + len(ids)] = 2.0 + 20.0 * max(0.0, hot - 40.0)
+                on_floor = contacts.get(leg) == "floor"
+                hot = t_floor if on_floor else t_air
+                r_noci[off:off + len(ids)] = max(2.0 + 20.0 * max(0.0, hot - 40.0),
+                                                 150.0 if (shock > 0 and on_floor) else 0.0)
                 off += len(ids)
         ap = world.nearest_apple(self.body.pos)
         r_vis = self.vision.rates(self.body.eye(ap.center), self.body.yaw,
-                                  world.visual_spheres(self))
+                                  world.visual_spheres(self), getattr(world, "light_lux", None))
         r_hear = self.hearing.rates(world.song_at(self))
         r_int = self.intero.rates(self.meta.energy)
         touch = world.touching(self)
@@ -186,12 +195,13 @@ class Fly:
         if self.cfg.us_punish_shortcut and not has_vnc:
             punish = 8.0 * max(0.0, temp - 30.0) + world.shock_at(self)
         elif self.cfg.us_punish_shortcut:
-            punish = world.shock_at(self)   # electric shock (no modelled shock receptors)
+            punish = shock   # A24 on top of the nociceptor route (A24b); off = connectome only
         r_ppl1 = np.full(len(self.ppl1), punish)
         reward = 0.0
         if self.cfg.us_reward_shortcut and self.body.proboscis and on_apple:
             reward = 30.0 * ap.nutrition()["sugar_frac"] * gains["sugar"]
         r_pam = np.full(len(self.pam), reward)
+        self.injected = {"PPL1": punish, "PAM": reward}   # spikes added by A24/A25, for honest logs
         self.last_temp = temp
         # lesions (body schema): lost or silenced sensors (A85)
         sch = self.schema

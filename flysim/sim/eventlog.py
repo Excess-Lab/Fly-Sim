@@ -24,7 +24,7 @@ EVENT_META = {
     "encounter": ("fight", 2), "lunge": ("fight", 3), "copulation": ("mating", 3),
     "egg": ("mating", 2), "birth": ("life", 3), "death": ("life", 3), "injury": ("life", 2),
     "cold_coma": ("distress", 2), "anoxia": ("distress", 3), "behaviour": ("social", 1),
-    "apple": ("world", 2), "air": ("world", 2), "plant": ("world", 2), "info": ("info", 1),
+    "apple": ("world", 2), "air": ("world", 2), "weather": ("world", 1), "plant": ("world", 2), "info": ("info", 1),
 }
 CATEGORY_RU = {"fight": "драки", "courtship": "ухаживание", "mating": "спаривание и яйца",
                "life": "рождения и смерти", "feeding": "кормление", "distress": "дистресс (корреляты)",
@@ -90,6 +90,19 @@ class EventLog:
                                 "text": f"погибла: {d['cause']} (возраст {d['age_d']} дн)",
                                 "others": [], "pos": d["pos"], "data": {"cause": d["cause"]}})
         st["deaths"] = len(getattr(w, "deaths", []))
+        wx = getattr(w, "weather", None)
+        if wx is not None:
+            for te, text in wx.events:
+                imp = 2 if ("гроза" in text or "дождь" in text) else 1
+                self.events.append({"id": len(self.events), "clock_h": round(te, 4), "t": round(t, 3),
+                                    "session": self.session, "frame": self.frame_idx, "fly": "мир",
+                                    "sex": "", "type": "weather", "cat": "world", "imp": imp,
+                                    "text": text, "others": [], "pos": None, "data": {}})
+            wx.events.clear()
+            day = wx.is_day(w.clock_h)
+            if st.get("day") is not None and st["day"] != day:
+                self._ev(w, None, t, "weather", "рассвет" if day else "закат")
+            st["day"] = day
         co2_lvl = 2 if w.co2_ppm > 20000 else 1 if w.co2_ppm > 5000 else 0
         o2_lvl = 2 if w.o2_pct < 5 else 1 if w.o2_pct < 15 else 0
         for key, lvl, txt in (("co2", co2_lvl, f"CO₂ в воздухе {w.co2_ppm / 1e4:.2f} %"),
@@ -117,8 +130,8 @@ class EventLog:
                 "mated": int(f.mated), "hunger": round(f.meta.hunger, 4), "energy": round(f.meta.energy, 4),
                 "crop_ul": round(f.meta.crop_ul, 4), "temp": round(float(getattr(f, "last_temp", 25.0)), 2),
                 "smell_strongest": strongest[0], "smell_conc": round(float(strongest[1]), 4),
-                "taste_sugar": round(taste.get("sugar", 0.0), 3), "taste_ethanol": round(taste.get("ethanol", 0.0), 3),
-                "taste_acid": round(taste.get("acid", 0.0), 3),
+                "taste_sugar": round(taste.get("sugar", 0.0), 3), "taste_ethanol": round(taste.get("ethanol_g", taste.get("ethanol", 0.0)), 3),
+                "taste_acid": round(taste.get("acetic_g", taste.get("acid", 0.0)), 3),
                 "PPL1_punish_Hz": round(r.get("ppl1", 0.0), 2), "PAM_reward_Hz": round(r.get("pam", 0.0), 2),
                 "valence_proxy": round(r.get("pam", 0.0) - r.get("ppl1", 0.0), 2),
                 "MBON_Hz": round(r.get("mbon", 0.0), 2), "KC_Hz": round(r.get("kc", 0.0), 3),
@@ -190,7 +203,8 @@ class EventLog:
         f._ppl1_s = (getattr(f, "_ppl1_s", 0.0) + dt) if s["PPL1_punish_Hz"] > 20 else 0.0
         if f._ppl1_s >= 3.0 and not getattr(f, "_distress_flag", False):
             E("distress_sustained", f"длительный сигнал наказания ≥3 с (PPL1 {s['PPL1_punish_Hz']:.0f} Гц; "
-                                    f"нейронный коррелят, не измерение переживания)")
+                                    f"нейронный коррелят, не измерение переживания"
+                                    + ("; включает обход A24)" if getattr(f, "injected", {}).get("PPL1", 0) > 0 else ")"))
             f._distress_flag = True
         if f._ppl1_s == 0.0:
             f._distress_flag = False
@@ -249,14 +263,18 @@ class EventLog:
             if (p["hunger"] < lvl) != (s["hunger"] < lvl):
                 E("hunger", f"голод {'вырос выше' if s['hunger'] >= lvl else 'упал ниже'} {lvl}", hunger=s["hunger"])
         if s["PPL1_punish_Hz"] > 20 >= p["PPL1_punish_Hz"]:
-            E("punish_signal", f"сигнал наказания: PPL1 {s['PPL1_punish_Hz']:.0f} Гц (коррелят, не переживание)")
+            inj = getattr(f, "injected", {}).get("PPL1", 0.0)
+            E("punish_signal", f"сигнал наказания: PPL1 {s['PPL1_punish_Hz']:.0f} Гц (коррелят, не переживание"
+              + (f"; включает {inj:.0f} Гц обхода A24)" if inj > 0 else "; по коннектому)"), shortcut=inj > 0)
         if s["PAM_reward_Hz"] > 10 >= p["PAM_reward_Hz"]:
-            E("reward_signal", f"сигнал награды: PAM {s['PAM_reward_Hz']:.0f} Гц (коррелят, не переживание)")
+            inj = getattr(f, "injected", {}).get("PAM", 0.0)
+            E("reward_signal", f"сигнал награды: PAM {s['PAM_reward_Hz']:.0f} Гц (коррелят, не переживание"
+              + (f"; включает {inj:.0f} Гц обхода A25)" if inj > 0 else "; по коннектому)"), shortcut=inj > 0)
         # memory: report only new lows (lasting depression), in steps of 0.05
         low = getattr(f, "_mem_low", 1.0)
         if s["mbon_w_min"] < low - 0.05:
-            E("memory", f"память усилилась: самый ослабленный синапс KC→MBON {s['mbon_w_min']:.2f} "
-              f"(1 = исходно)")
+            E("memory", f"след памяти: самый ослабленный синапс KC→MBON {s['mbon_w_min']:.2f} "
+              f"(1 = исходно, ослабление = выученное избегание)")
             f._mem_low = s["mbon_w_min"]
         if s["P1_arousal_Hz"] > 15 >= p["P1_arousal_Hz"]:
             E("arousal", f"возбуждение P1 {s['P1_arousal_Hz']:.0f} Гц")

@@ -38,6 +38,8 @@ class World:
     base_temp_c: float = 25.0
     max_apples: int = 8         # performance cap for fruit produced by trees
     wind: tuple = (0.0, 0.0)    # m/s (x, y), uniform
+    weather: object = None      # flysim.world.weather.Weather (garden climate) or None (container)
+    light_lux: float = None     # None = constant lab light (photoreceptor rates as in A54)
     corpses: list = field(default_factory=list)   # dead flies stay where they died
     deaths: list = field(default_factory=list)    # (clock_h, name, sex, cause, pos)
 
@@ -89,7 +91,10 @@ class World:
         left = hours
         while left > 1e-9:
             h = min(1.0, left)
-            if self.seasonal:
+            if self.weather is not None:
+                self.weather.step_hours(h, self.clock_h)
+                self.apply_weather()
+            elif self.seasonal:
                 from flysim.world.plant import seasonal_temp
                 self.ambient_c = float(seasonal_temp(self.clock_h))
             self.sync_air()
@@ -103,6 +108,12 @@ class World:
                 self.atm.step(h, self.apples, len(self.flies), self.ambient_c, **self.soil_args())
             left -= h
         self.sync_air()
+
+    def apply_weather(self):
+        w = self.weather
+        self.ambient_c = w.temp_c(self.clock_h)
+        self.wind = w.wind_xy()
+        self.light_lux = w.lux(self.clock_h)
 
     def _tree_fruit(self):
         """Fruiting trees drop new apples in autumn (day-of-year ~260); seeds come with them."""
@@ -130,7 +141,8 @@ class World:
             return
         self.arena_phys = NMFArena([(a.center, a.p.radius_mm) for a in self.apples],
                                    None, [(f.cfg.name, f.body.pos, f.body.yaw) for f in phys],
-                                   half_size=max(1000.0, 2 * self.arena), arena=self.arena)
+                                   half_size=max(1000.0, 2 * self.arena), arena=self.arena,
+                                   seeds={f.cfg.name: f.cfg.seed for f in phys})
         for f in phys:
             old = f.body
             f.body = NMFBody(self.arena_phys, f.cfg.name, old.rng)
@@ -263,6 +275,12 @@ class World:
             m.body.lunge_t -= dt
 
     def step(self, dt):
+        if self.weather is not None:
+            h0 = self.clock_h
+            if int(h0) != int(h0 + dt / 3600):     # hourly weather transition inside a session
+                self.weather.step_hours(1.0, h0)
+            self.weather.step_seconds(dt)
+            self.apply_weather()
         for f in self.flies:
             f.step(self, dt)
         if self.arena_phys is not None:

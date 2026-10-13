@@ -25,6 +25,27 @@ CONDITIONS = {
 }
 
 
+def _rng(seed, tag):
+    """Experiment-side random stream (start pose, counterbalancing), independent of the fly's
+    own noise streams that also derive from `seed`."""
+    return np.random.default_rng([int(seed), tag])
+
+
+def _pose_on_circle(seed, r, center=(0.0, 0.0)):
+    """Start on a circle of radius r around `center` at a random angle, random heading."""
+    g = _rng(seed, 1)
+    a, yaw = g.uniform(0, 2 * np.pi, 2)
+    return (center[0] + r * np.cos(a), center[1] + r * np.sin(a), 0.0), float(yaw)
+
+
+def _landmarks():
+    """Visual landmarks for place learning: three dark spheres of different size outside the
+    arena walls (non-odorous because the place protocols set odor_scale = 0). Flies see them
+    through Vision (world.visual_spheres); they never reach them."""
+    return [_apple(0, center=c, radius=r) for c, r in
+            (((85.0, 30.0), 22.0), ((-80.0, -15.0), 12.0), ((10.0, -85.0), 16.0))]
+
+
 def _apple(age_days, center=(0.0, 0.0), radius=35.0):
     from flysim.world.apple import AppleParams
     a = Apple(AppleParams(radius_mm=radius), center=center)
@@ -57,15 +78,31 @@ def _first_time(frames, pred, t0=0.0):
 
 
 # ------------------------------------------------------------------------------------------
-def place_avoidance(cond="full", seed=0, t_base=20.0, t_train=30.0, t_test=30.0):
-    """Heat-zone place learning (cf. Ofstad et al. 2011). Hot floor zone 40 C during training;
-    avoidance = drop of time in the (now neutral) zone from baseline to test."""
-    w = World(_apple(0, center=(-200.0, -200.0), radius=10.0), arena=50.0)  # apple out of play
+def place_avoidance(cond="full", seed=0, t_base=30.0, t_train=30.0, t_test=30.0, zone_temp=44.0):
+    """Heat-zone place learning (cf. Ofstad et al. 2011). Hot floor zone during training;
+    avoidance = drop of time in the (now neutral) zone from baseline to test.
+
+    Zone 44 C: leg nociceptors fire only above ~40 C (A80; 2 + 20 Hz/C), and every fly has a VNC
+    since 0.4.0, so a 40 C zone delivered no punishment at all. 44 C is noxious for adults
+    (hot-plate nociception assays use ~40-46 C, Neely et al. 2010; knockdown above ~39 C body
+    temperature, Huey et al. 1992) yet far below the minutes needed for heat death (A94).
+    Spatial cues: visual landmarks outside the walls (_landmarks); no odours (odor_scale = 0).
+    Baseline and test windows have equal length and both start from the same pose (drawn from
+    the seed), so the index is not biased by where the fly happened to be after training."""
+    if t_test != t_base:
+        raise ValueError("baseline and test windows must be equal (t_base == t_test)")
+    marks = _landmarks()
+    w = World(marks[0], apples=marks, arena=50.0)
     w.odor_scale = 0.0
-    zone = Zone(center=(20.0, 20.0), radius=20.0, temp_c=40.0, active=False)
+    zone = Zone(center=(20.0, 20.0), radius=20.0, temp_c=zone_temp, active=False)
     w.zones.append(zone)
-    f = Fly(FlyConfig("F", "female", starved_h=0, seed=seed, **CONDITIONS[cond]),
-            pos=(-20, -20, 0), yaw=0.8)
+    g = _rng(seed, 2)
+    while True:   # start anywhere in the arena at least 5 mm outside the zone
+        xy = g.uniform(-42.0, 42.0, 2)
+        if np.linalg.norm(xy - np.asarray(zone.center)) > zone.radius + 5.0:
+            break
+    start, yaw0 = (float(xy[0]), float(xy[1]), 0.0), float(g.uniform(0, 2 * np.pi))
+    f = Fly(FlyConfig("F", "female", starved_h=0, seed=seed, **CONDITIONS[cond]), pos=start, yaw=yaw0)
     w.flies.append(f)
     w.rebuild_physics()
     rec = Recorder(w)
@@ -73,40 +110,51 @@ def place_avoidance(cond="full", seed=0, t_base=20.0, t_train=30.0, t_test=30.0)
     zone.active = True
     rec.run(t_train, log_every=10, t0=t_base)
     zone.active = False
+    f.body.teleport(start, yaw0)
     rec.run(t_test, log_every=10, t0=t_base + t_train)
     fr = rec.frames["F"]
     m = {
-        "experiment": "place_avoidance", "condition": cond, "seed": seed,
+        "experiment": "place_avoidance", "condition": cond, "seed": seed, "zone_temp": zone_temp,
+        "start": [round(v, 1) for v in start], "start_yaw": round(yaw0, 3),
         "frac_zone_baseline": _frac_in(fr, zone.center, zone.radius, 0, t_base),
         "frac_zone_training": _frac_in(fr, zone.center, zone.radius, t_base, t_base + t_train),
         "frac_zone_test": _frac_in(fr, zone.center, zone.radius, t_base + t_train, None),
         "mbon_w_min_end": fr[-1]["mbon_w_min"],
     }
     m["avoidance_index"] = m["frac_zone_baseline"] - m["frac_zone_test"]
-    m.update(t_base=t_base, t_train=t_train)
+    m.update(t_base=t_base, t_train=t_train, t_test=t_test)
     rec.save(ROOT / f"place_avoidance_{cond}_s{seed}", meta=m)
     return m
 
 
+ODOURS = ({"ethyl acetate": 1.0}, {"isoamyl acetate": 1.0})
+
+
 def tmaze_choice(cond="full", seed=0, retention_h=(0.0,), t_train=30.0, t_test=30.0):
     """Two-odour choice after aversive conditioning (cf. Tully & Quinn 1985).
-    Odour A (ethyl acetate) paired with punishment, odour B (isoamyl acetate) unpaired.
-    Test: both sources at opposite ends; PI = time near B - time near A (fraction of test).
+    Reciprocal design: which odour is punished (CS+) and on which side of the maze CS+ is
+    offered at test are counterbalanced by the seed (seed % 2 -> CS+ odour, (seed // 2) % 2 ->
+    CS+ side), so 4 consecutive seeds cover every combination. CS+ is paired with shocks, CS-
+    is presented without. PI = time near CS- - time near CS+ (fraction of test) for this half;
+    protocol.analyze() averages the two reciprocal halves into one N, as Tully & Quinn did.
     Retention: passive forgetting applied between training and each test (A23)."""
+    k_odour, k_side = seed % 2, (seed // 2) % 2
+    cs_plus, cs_minus = ODOURS[k_odour], ODOURS[1 - k_odour]
+    x_plus = -40.0 if k_side == 0 else 40.0
     w = World(_apple(0, center=(-500.0, -500.0), radius=5.0), arena=50.0)
     w.odor_scale = 0.0
-    f = Fly(FlyConfig("F", "female", starved_h=0, seed=seed, **CONDITIONS[cond]),
-            pos=(0, 0, 0), yaw=np.pi / 2)
+    g = _rng(seed, 3)
+    start = (0.0, float(g.uniform(-3.0, 3.0)), 0.0)    # choice point, small jitter
+    yaw0 = float(g.uniform(0, 2 * np.pi))
+    f = Fly(FlyConfig("F", "female", starved_h=0, seed=seed, **CONDITIONS[cond]), pos=start, yaw=yaw0)
     w.flies.append(f)
     w.rebuild_physics()
-    A = {"ethyl acetate": 1.0}
-    B = {"isoamyl acetate": 1.0}
     rec = Recorder(w)
     t = 0.0
-    # Tully & Quinn 1985: odour A with 12 x 1.25 s shocks over 60 s (one every 5 s), 45 s rest,
-    # odour B 60 s without shocks. Durations scaled by t_train / 60.
+    # Tully & Quinn 1985: CS+ with 12 x 1.25 s shocks over 60 s (one every 5 s), 45 s rest,
+    # CS- 60 s without shocks. Durations scaled by t_train / 60.
     scale = t_train / 60.0
-    w.extra_odor_sources = [((0, 0, 0), A, 50.0)]
+    w.extra_odor_sources = [((0, 0, 0), cs_plus, 50.0)]
     for k in range(int(60 * scale / 0.01)):
         w.shocks["F"] = 60.0 if ((k * 0.01) / scale) % 5.0 < 1.25 else 0.0
         w.step(0.01)
@@ -116,31 +164,34 @@ def tmaze_choice(cond="full", seed=0, retention_h=(0.0,), t_train=30.0, t_test=3
     w.extra_odor_sources = []
     rec.run(45 * scale, log_every=0, t0=t)
     t += 45 * scale
-    w.extra_odor_sources = [((0, 0, 0), B, 50.0)]
+    w.extra_odor_sources = [((0, 0, 0), cs_minus, 50.0)]
     rec.run(60 * scale, log_every=0, t0=t)
     t += 60 * scale
     results = {"experiment": "tmaze_choice", "condition": cond, "seed": seed,
+               "cs_plus": next(iter(cs_plus)), "cs_plus_side": "left" if x_plus < 0 else "right",
                "mbon_w_min_after_training": float(f.brain.kc_mbon_strength().min()) if f.brain.pl_on else 1.0,
                "tests": []}
     elapsed_h = 0.0
+    sgn = np.sign(x_plus)          # +1: CS+ on the right
     for h in retention_h:
         f.pass_time(h - elapsed_h, w)  # retention interval: the fly lives on, memories fade
         elapsed_h = h
-        f.body.teleport((0.0, 0.0, 0.0), np.pi / 2)
-        w.extra_odor_sources = [((-40, 0, 0), A, 8.0), ((40, 0, 0), B, 8.0)]
+        f.body.teleport(start, yaw0)
+        w.extra_odor_sources = [((x_plus, 0, 0), cs_plus, 8.0), ((-x_plus, 0, 0), cs_minus, 8.0)]
         t_start = t
         rec.run(t_test, log_every=0, t0=t)
         t += t_test
         fr = [x for x in rec.frames["F"] if x["t"] > t_start]
-        xs = np.array([x["pos"][0] for x in fr])
-        near_a = float(np.mean(xs < -10))
-        near_b = float(np.mean(xs > 10))
+        xs = sgn * np.array([x["pos"][0] for x in fr])   # >0 = CS+ side
+        near_plus = float(np.mean(xs > 10))
+        near_minus = float(np.mean(xs < -10))
         lat = _first_time(fr, lambda x: abs(x["pos"][0]) > 10, t0=t_start)
-        side = "B" if (np.flatnonzero(np.abs(xs) > 10)[:1].size and xs[np.flatnonzero(np.abs(xs) > 10)[0]] > 0) else ("A" if np.any(np.abs(xs) > 10) else "none")
+        out_i = np.flatnonzero(np.abs(xs) > 10)
+        side = ("CS+" if xs[out_i[0]] > 0 else "CS-") if out_i.size else "none"
         # vacillation: number of crossings of the midline (indecision indicator, see TRACKING.md)
         cross = int(np.sum(np.diff(np.sign(xs[np.abs(xs) > 2])) != 0))
-        results["tests"].append({"retention_h": h, "PI": near_b - near_a, "near_A": near_a,
-                                 "near_B": near_b, "first_choice": side,
+        results["tests"].append({"retention_h": h, "PI": near_minus - near_plus,
+                                 "near_CS+": near_plus, "near_CS-": near_minus, "first_choice": side,
                                  "decision_latency_s": lat, "midline_crossings": cross,
                                  "mbon_w_min": float(f.brain.kc_mbon_strength().min()) if f.brain.pl_on else 1.0})
     rec.save(ROOT / f"tmaze_{cond}_s{seed}", meta=results)
@@ -151,8 +202,9 @@ def food_search_after_aversion(cond="full", seed=0, t_naive=40.0, t_train=20.0, 
     """Hungry fly finds a fermenting apple; then is punished while on it; then search again.
     Measures change of search strategy: latency to reach food, tortuosity, time on apple."""
     w = World(_apple(2), arena=60.0)
+    start, yaw0 = _pose_on_circle(seed, 50.0)   # 15 mm from the fruit surface, random side/heading
     f = Fly(FlyConfig("F", "female", starved_h=24, seed=seed, **CONDITIONS[cond]),
-            pos=(-50, 0, 0), yaw=0.0)
+            pos=start, yaw=yaw0)
     w.flies.append(f)
     w.rebuild_physics()
     rec = Recorder(w)
@@ -169,7 +221,7 @@ def food_search_after_aversion(cond="full", seed=0, t_naive=40.0, t_train=20.0, 
         t += 0.01
     w.shocks["F"] = 0.0
     f.pop_counts()
-    f.body.teleport((-50.0, 0.0, 0.0), 0.0)
+    f.body.teleport(start, yaw0)
     t0 = t
     rec.run(t_test, log_every=10, t0=t)
     fr2 = [x for x in rec.frames["F"] if x["t"] > t0]
@@ -182,11 +234,16 @@ def food_search_after_aversion(cond="full", seed=0, t_naive=40.0, t_train=20.0, 
     return m
 
 
-def conflict(starved_h=24, seed=0, t=60.0, ring_temp=34.0):
-    """Food vs aversion: fermenting apple surrounded by a warm floor ring. Hungry vs fed."""
+def conflict(starved_h=24, seed=0, t=60.0, ring_temp=42.0):
+    """Food vs aversion: fermenting apple surrounded by a hot floor ring. Hungry vs fed.
+    Ring 42 C: above the leg-nociceptor threshold (~40 C, A80), i.e. noxious but crossable in
+    seconds (heat death needs minutes above 40 C body temperature, A94); hot-plate assays use
+    ~40-46 C (Neely et al. 2010). The former 34 C ring was below the nociceptor threshold and
+    therefore not aversive for flies with a VNC."""
     w = World(_apple(2, radius=20.0), arena=60.0)
     w.zones.append(Zone(center=(0.0, 0.0), radius=32.0, temp_c=ring_temp))
-    f = Fly(FlyConfig("F", "female", starved_h=starved_h, seed=seed), pos=(-50, 0, 0), yaw=0.0)
+    start, yaw0 = _pose_on_circle(seed, 50.0)
+    f = Fly(FlyConfig("F", "female", starved_h=starved_h, seed=seed), pos=start, yaw=yaw0)
     w.flies.append(f)
     w.rebuild_physics()
     rec = Recorder(w)
@@ -194,7 +251,7 @@ def conflict(starved_h=24, seed=0, t=60.0, ring_temp=34.0):
     fr = rec.frames["F"]
     m = {"experiment": "conflict", "starved_h": starved_h, "ring_temp": ring_temp, "seed": seed,
          "frac_on_apple": float(np.mean([x["surface"] == "apple" for x in fr])),
-         "frac_in_warm_ring": float(np.mean([x["temp"] > 30 for x in fr])),
+         "frac_in_warm_ring": float(np.mean([x["temp"] > w.ambient_c + 5 for x in fr])),
          "latency_to_apple_s": _first_time(fr, lambda x: x["surface"] == "apple"),
          "feeding_frac": float(np.mean([x["proboscis"] for x in fr]))}
     rec.save(ROOT / f"conflict_h{starved_h}_T{int(ring_temp)}_s{seed}", meta=m)

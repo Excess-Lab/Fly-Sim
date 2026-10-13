@@ -33,6 +33,9 @@ def load(sex: str):
     return _cache[sex]
 
 
+READOUT_TYPES = r"^(MN9|CB0701|PPL1|PAM|MBON|DM1_lPN|DM4_lPN)"
+
+
 def male_type_gains(b, ann):
     """ASSUMPTION(A09e): per-cell-type calibration of the male brain against FlyWire (same method
     as A09d). A single global factor left whole pathways silent (e.g. sugar -> MN9 0 Hz); VNC
@@ -111,4 +114,10 @@ def make_brain(sex: str, seed: int = 0) -> tuple[Brain, object]:
         b.gain[:] = banc_type_gains(b, ann).astype(np.float32)
     elif sex == "male":
         b.gain[:] = male_type_gains(b, ann).astype(np.float32)
+    if sex in ("female_banc", "male"):
+        # ASSUMPTION(A09f): the neurons used as validation read-outs (proboscis motor neuron,
+        # reinforcement DANs, MBONs, tested PNs) are NOT calibrated per type: they get the
+        # dataset's global scale, so tests on them are not built in by the calibration.
+        ro = ann.type.astype(str).str.match(READOUT_TYPES).to_numpy()
+        b.gain[ro] = np.float32(np.median(b.gain) if sex == "female_banc" else 1.0)
     return b, ann

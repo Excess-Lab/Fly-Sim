@@ -161,9 +161,37 @@ class Thermo:
 # ------------------------------------------------------------------------------------------
 # vision: compound eye, one direction per photoreceptor
 def _photoreceptor_columns(con: Connectome, ann: pd.DataFrame, sex: str):
+    """sex: dataset name ("female" = FlyWire, "male" = Male CNS, "female_banc" = BANC)."""
     t = pd.Series(ann.type.to_numpy())
     pr = np.flatnonzero(t.str.match(r"^(R1-6|R1-R6|R7|R8)").to_numpy())
     col_xy = np.full((con.n, 2), np.nan)
+    if sex == "female_banc":
+        # ASSUMPTION(A54b): BANC has no column assignment. The medulla is retinotopic, so each
+        # photoreceptor (BANC: R7/R8 only) takes the soma position of its strongest medulla
+        # partner, projected onto that optic lobe's two principal axes. Coarser than columns.
+        xyz = ann[["x", "y", "z"]].to_numpy(float)
+        side_all = ann.side.astype(str).to_numpy()
+        part = np.full(len(pr), -1)
+        for k, i in enumerate(pr):
+            lo, hi = con.indptr[i], con.indptr[i + 1]
+            tgt, w = con.post[lo:hi], np.abs(con.syn[lo:hi])
+            ok = ~np.isnan(xyz[tgt, 0]) & np.isin(side_all[tgt], ["left", "right"])
+            if ok.any():
+                part[k] = tgt[ok][np.argmax(w[ok])]
+        keep = part >= 0
+        pr, part = pr[keep], part[keep]
+        xy = np.zeros((len(pr), 2))
+        side = side_all[part]
+        for s_ in ("left", "right"):
+            m = side == s_
+            if m.sum() < 10:
+                continue
+            X = xyz[part[m]] - xyz[part[m]].mean(0)
+            v = np.linalg.svd(X, full_matrices=False)[2]
+            xy[m] = X @ v[:2].T
+        ann_side = ann.side.to_numpy().copy()
+        ann_side[pr] = side
+        return _orient_eyes(pr, xy, part, ann, ann_side[pr])
     if sex == "female":
         c = pd.read_csv(RAW / "annotations" / "codex783" / "column_assignment.csv.gz")
         lut = {int(r): i for i, r in enumerate(con.ids)}
@@ -199,7 +227,10 @@ def _photoreceptor_columns(con: Connectome, ann: pd.DataFrame, sex: str):
             xy[k] = col_xy[partner[k]]
     keep = ~np.isnan(xy[:, 0])
     pr, xy, partner = pr[keep], xy[keep], partner[keep]
-    side = ann.side.to_numpy()[pr]
+    return _orient_eyes(pr, xy, partner, ann, ann.side.to_numpy()[pr])
+
+
+def _orient_eyes(pr, xy, partner, ann, side):
     # orient each eye from anatomy: elevation axis = the column axis best correlated with the
     # dorso-ventral position of the partner neurons (y grows ventrally in both datasets)
     py = ann.y.to_numpy()[partner]
@@ -241,12 +272,16 @@ class Vision:
             el[m] = np.radians(-75 + 150 * v)
         self.dirs = np.stack([np.cos(el) * np.cos(az), np.cos(el) * np.sin(az), np.sin(el)], 1)
 
-    def rates(self, pos, yaw, spheres) -> np.ndarray:
-        """spheres: list of (center xyz, radius). Returns luminance-coded rates."""
+    def rates(self, pos, yaw, spheres, lux=None) -> np.ndarray:
+        """spheres: list of (center xyz, radius). Returns luminance-coded rates.
+        lux: ambient illuminance (garden, A98); None = constant lab light. Photoreceptor
+        responses compress roughly logarithmically over ~6 decades (Juusola & Hardie 2001):
+        k = (log10 lux + 1) / 6, clipped to [0, 1], scales the bright part of the response."""
         c, s = np.cos(yaw), np.sin(yaw)
         R = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
         d = self.dirs @ R.T
-        lum = np.where(d[:, 2] > 0, 60.0, 30.0)
+        k = 1.0 if lux is None else float(np.clip((np.log10(max(lux, 1e-3)) + 1) / 6, 0, 1))
+        lum = np.where(d[:, 2] > 0, 5.0 + 55.0 * k, 5.0 + 25.0 * k)
         for cen, rad in spheres:
             oc = pos - np.asarray(cen)
             b = d @ oc
@@ -301,7 +336,8 @@ class Interoception:
 
     def __init__(self, ann: pd.DataFrame):
         t = pd.Series(ann.type.to_numpy())
-        self.ipc = np.flatnonzero(t.str.match(r"^IPC$").to_numpy())
+        # insulin-producing cells: "IPC" (FlyWire, Male CNS), "m_NSC_DILP" (BANC)
+        self.ipc = np.flatnonzero(t.str.match(r"^(IPC|m_NSC_DILP)$").to_numpy())
         self.idx = self.ipc
 
     def rates(self, energy: float) -> np.ndarray:

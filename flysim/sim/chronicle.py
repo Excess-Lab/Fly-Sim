@@ -70,7 +70,9 @@ def make_frame(world, t_session, counts: dict, log, status: str = "", index: int
                           state={k: round(float(getattr(a.s, k)), 4) for k in APPLE_KEYS})
                      for a in w.apples],
           "arena_mm": w.arena,
-          "env": {"o2_pct": round(w.o2_pct, 2), "co2_ppm": round(w.co2_ppm), "temp_c": round(w.ambient_c, 1)},
+          "env": {"o2_pct": round(w.o2_pct, 2), "co2_ppm": round(w.co2_ppm), "temp_c": round(w.ambient_c, 1),
+                  "wind": [round(float(v), 3) for v in w.wind],
+                  **({"weather": w.weather.summary(w.clock_h)} if getattr(w, "weather", None) else {})},
           "zones": [{"center": z.center, "radius": z.radius, "temp_c": z.temp_c, "active": z.active}
                     for z in w.zones],
           "brood": w.population.counts(w.clock_h) if getattr(w, "population", None) else
@@ -98,7 +100,7 @@ def make_frame(world, t_session, counts: dict, log, status: str = "", index: int
             "rates": {k: round(float(v), 1) for k, v in r.items()},
             "mbon_w_min": round(float(f.brain.kc_mbon_strength().min()), 3) if f.brain.pl_on else None,
             "n_active": int(np.count_nonzero(c)), "schema": f.schema.summary(),
-            "dataset": getattr(f, "dataset_name", f.cfg.sex), "mode_mech": mechanism_mode(f.cfg, len(getattr(f, "noci_idx", [])) > 0),
+            "dataset": getattr(f, "dataset_name", f.cfg.sex), "mode_mech": mechanism_mode(f.cfg, len(getattr(f, "noci_idx", [])) > 0, getattr(f, "was_shocked", False)),
             "idx": _b64(nz.astype(np.uint32)), "val": _b64(np.minimum(c[nz], 255).astype(np.uint8)),
         }
         act, flow = region_stats(f, c)

@@ -326,7 +326,8 @@ class Brain:
         """Relative KC->MBON weight per MBON (1 = naive)."""
         num = np.bincount(self.pe_m, self.w[self.pe_edge], minlength=len(self.da_tr))
         den = np.bincount(self.pe_m, self.pe_w0, minlength=len(self.da_tr))
-        return num / np.maximum(den, 1e-9)
+        # MBONs without KC input in this connectome (den = 0) have nothing to learn: report 1
+        return np.where(den > 0, num / np.maximum(den, 1e-9), 1.0)
 
     def reset(self, seed: int | None = None):
         n = self.con.n

@@ -40,8 +40,9 @@ def model_version() -> str:
         return "unknown"
 
 
-def mechanism_mode(cfg, has_vnc: bool = False) -> str:
-    punish = cfg.us_punish_shortcut and not has_vnc   # VNC flies: pain via connectome
+def mechanism_mode(cfg, has_vnc: bool = False, shocked: bool = False) -> str:
+    # VNC flies: heat pain via the connectome; shocks still add A24 when the shortcut is on
+    punish = cfg.us_punish_shortcut and (not has_vnc or shocked)
     if punish or cfg.us_reward_shortcut:
         return "experimental_shortcuts"
     if cfg.spontaneous:
@@ -54,7 +55,7 @@ def connectome_coverage(fly) -> dict:
     ann = fly.ann
     sc = ann.super_class
     has_vnc = bool(sc.str.contains("vnc").any())
-    dataset = {"female": "FlyWire v783 (brain only)", "male": "Janelia Male CNS v1.0 (brain + VNC)"}
+    dataset = {"female": "BANC 888 (brain + VNC)", "male": "Janelia Male CNS v1.0 (brain + VNC)"}
     dataset = getattr(fly, "dataset_name", None) or dataset[fly.cfg.sex]
     groups = {
         "olfactory_receptor_neurons": len(fly.olf.idx),
@@ -87,13 +88,14 @@ def fly_provenance(fly) -> dict:
     if c.us_punish_shortcut and not has_vnc:
         shortcuts.append("A24: noxious stimulus -> PPL1 punishment DANs (measured physiology)")
     elif c.us_punish_shortcut:
-        shortcuts.append("A24 (shocks only): electric shock -> PPL1; heat pain via connectome")
+        shortcuts.append("A24 (shocks only): electric shock -> PPL1 in addition to leg nociceptors (A24b); "
+                         "heat pain via connectome")
     if c.us_reward_shortcut:
         shortcuts.append("A25: sugar ingestion -> PAM reward DANs (measured physiology)")
     approx = list(ALWAYS_APPROX)
     if c.spontaneous:
         approx.append(("A30", "spontaneous locomotor drive"))
-    return {"fly": c.name, "sex": c.sex, "seed": c.seed, "mode": mechanism_mode(c, has_vnc),
+    return {"fly": c.name, "sex": c.sex, "seed": c.seed, "mode": mechanism_mode(c, has_vnc, getattr(fly, "was_shocked", False)),
             "plasticity": c.plasticity, "shortcuts": shortcuts,
             "approximations": [f"{a}: {b}" for a, b in approx],
             "connectome_coverage": connectome_coverage(fly), "body": c.body}
