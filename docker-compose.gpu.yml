@@ -1,0 +1,16 @@
+# GPU override:  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+services:
+  flysim:
+    build:
+      context: .
+      dockerfile: Dockerfile.cuda
+    image: flysim:cuda
+    environment:
+      - FLYSIM_BACKEND=cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -165,6 +165,7 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
     spk_buf = np.empty(n, dtype=np.int32)
     spk_n = np.zeros(N_CHUNKS, dtype=np.int64)
     frozen = np.zeros(n, dtype=np.uint8)
+    gj_dv = np.zeros(gj_a.shape[0])
     k = 0
     np.random.seed(rng_state)
     for s in range(n_steps):
@@ -173,13 +174,14 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
         _update_chunks(n, slot, v, g, rfc_left, frozen, ring, gain, decay_v, decay_g, coef_a,
                        v_0, v_th, spk_buf, spk_n, wad, decay_w, coef_w)
         # electrical synapses: subthreshold coupling, gj_k = G_gap/G_leak * dt/t_mbr (A99)
+        # (all pair currents from the same snapshot of v, then applied: order-independent)
         for q in range(gj_a.shape[0]):
-            ia, ib = gj_a[q], gj_b[q]
-            dv = gj_k[q] * (v[ib] - v[ia])
-            if frozen[ia] == 0:
-                v[ia] += dv
-            if frozen[ib] == 0:
-                v[ib] -= dv
+            gj_dv[q] = gj_k[q] * (v[gj_b[q]] - v[gj_a[q]])
+        for q in range(gj_a.shape[0]):
+            if frozen[gj_a[q]] == 0:
+                v[gj_a[q]] += gj_dv[q]
+            if frozen[gj_b[q]] == 0:
+                v[gj_b[q]] -= gj_dv[q]
         # Poisson drive and scheduled kicks act on v after the threshold (Brian2 'synapses' slot)
         for j in range(stim_idx.shape[0]):
             if stim_p[j] > 0.0 and np.random.random() < stim_p[j]:
@@ -216,6 +218,20 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
                         da_base)
 
 
+def _make_gpu_runner(brain):
+    """FLYSIM_BACKEND = auto (default: NVIDIA GPU if present) | cuda | cpu."""
+    import os
+    mode = os.environ.get("FLYSIM_BACKEND", "auto").lower()
+    if mode == "cpu":
+        return None
+    from flysim.brain import lif_cuda
+    if not lif_cuda.available():
+        if mode == "cuda":
+            raise RuntimeError("FLYSIM_BACKEND=cuda but no CUDA GPU is available")
+        return None
+    return lif_cuda.CudaRunner(brain)
+
+
 @dataclass
 class Brain:
     con: Connectome
@@ -239,8 +255,11 @@ class Brain:
         self._decay_w = np.exp(-p.dt / p.tau_w)
         self._coef_w = p.tau_w / (p.tau_w - p.t_mbr)
         self._rng = np.random.default_rng(self.seed)
+        self._gpu = None
+        self._gpu_dirty = True
         self.disable_plasticity()
         self.reset()
+        self._gpu = _make_gpu_runner(self)
 
     def set_gap_junctions(self, pairs):
         """pairs: list of (a, b, coupling_coefficient, spikelet_a_to_b_mV, spikelet_b_to_a_mV).
@@ -302,6 +321,7 @@ class Brain:
         return self.n_dropped
 
     def disable_plasticity(self):
+        self._gpu_dirty = True
         z64, z32, zf = np.zeros(0, np.int64), np.zeros(0, np.int32), np.zeros(0, np.float32)
         self.pl_on = False
         self.x_tr = np.zeros(1, np.float32)
@@ -375,12 +395,14 @@ class Brain:
         self.da_base = np.zeros(len(mbon), np.float32)
         self.pl_on = True
         self.mbon_idx = mbon
+        self._gpu_dirty = True
 
     def forget(self, seconds: float):
         """Fast-forward a resting period: only passive forgetting acts (ASSUMPTION A23)."""
         if self.pl_on:
             f = np.exp(-seconds * self.pl_c[5])
             self.w[self.pe_edge] = self.pe_w0 + (self.w[self.pe_edge] - self.pe_w0) * f
+            self._gpu_dirty = True
 
     def kc_mbon_strength(self) -> np.ndarray:
         """Relative KC->MBON weight per MBON (1 = naive)."""
@@ -394,6 +416,7 @@ class Brain:
         if getattr(self, "v_rest", None) is None or len(self.v_rest) != n:
             self.v_rest = np.full(n, self.p.v_0, dtype=np.float64)
         self.v = self.v_rest.copy()
+        self._gpu_dirty = True
         self.g = np.zeros(n, dtype=np.float64)
         self.rfc_left = np.zeros(n, dtype=np.int32)
         # ring slot k holds input arriving at steps == k (mod D); D = delay+1 so that a spike at
@@ -436,6 +459,9 @@ class Brain:
 
     def _run_kernel(self, n_steps, stim_idx, stim_p, ks, ki, counts, rec_mask, rec_out):
         p = self.p
+        if self._gpu is not None:
+            self._gpu.run(n_steps, stim_idx, stim_p, p.w_syn * p.f_poi, ks, ki, counts, rec_mask, rec_out)
+            return
         _step(n_steps, self.t_step, self.v, self.g, self.rfc_left, self.rfc_len, self.ring,
               self.con.indptr, self.con.post, self.w, self.gain,
               self._decay_v, self._decay_g, self._coef_a, self.v_rest, p.v_th, p.v_rst,

@@ -116,8 +116,19 @@ Fly-Sim моделирует *Drosophila melanogaster*, поведением к�
 docker compose up --build
 ```
 
-Откройте http://localhost:8800. При первом запуске скачается около 1,2 ГБ открытых данных
-коннектомов в `./data`. Выделите Docker не меньше 6 ГБ памяти.
+Откройте http://localhost:8800 и выделите Docker не меньше 6 ГБ памяти. Страница открывается сразу; при первом запуске в фоне скачивается ~1,2 ГБ данных коннектомов
+в `./data` (ход загрузки — на главной и в `data/download.log`), после этого можно запускать
+наблюдения.
+
+**Видеокарта NVIDIA** (драйвер + NVIDIA Container Toolkit): мозг считается на GPU.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+```
+
+Локально: `uv pip install -e ".[cuda]"` и `FLYSIM_BACKEND=cuda` (по умолчанию `auto` сам выбирает
+GPU, если она есть). `scripts/check_cuda.py --bench female_banc` сравнивает GPU и CPU и
+показывает скорость; `scripts/validate_all.py` — проверки корректности.
 
 **Локально** (Python 3.12, macOS или Linux)
 
