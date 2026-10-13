@@ -15,6 +15,11 @@ dependencies = [
 
 [project.optional-dependencies]
 validate = ["brian2", "matplotlib", "pytest"]
+# NVIDIA GPU backend (FLYSIM_BACKEND=cuda); brings the CUDA 12 runtime wheels
+cuda = ["numba-cuda[cu12]"]
 
 [tool.setuptools.packages.find]
 include = ["flysim*"]
+
+[tool.pytest.ini_options]
+markers = ["slow: takes minutes (CUDA simulator check)"]
