@@ -33,6 +33,24 @@ class OlfactionParams:
             self.ec50_by_odor = {"CO2": 1.0, "geosmin": 0.01}
 
 
+def infer_side(con, ann, idx, side):
+    """ASSUMPTION(A50c): neurons without an annotated side take the side of the neurons that
+    receive most of their synapses (sensory afferents project ipsilaterally-biased)."""
+    side = np.asarray(side, dtype=object).copy()
+    if con is None:
+        return side
+    side_all = ann.side.astype(str).to_numpy()
+    for k, i in enumerate(idx):
+        if side[k] in ("left", "right"):
+            continue
+        lo, hi = con.indptr[i], con.indptr[i + 1]
+        tg, w = con.post[lo:hi], np.abs(con.syn[lo:hi])
+        l_, r_ = w[side_all[tg] == "left"].sum(), w[side_all[tg] == "right"].sum()
+        if l_ != r_:
+            side[k] = "left" if l_ > r_ else "right"
+    return side
+
+
 class Olfaction:
     def __init__(self, ann: pd.DataFrame, p: OlfactionParams | None = None, con=None):
         self.p = p or OlfactionParams()
@@ -310,6 +328,7 @@ class Vision:
 
     def __init__(self, con: Connectome, ann: pd.DataFrame, sex: str):
         self.idx, xy, side = _photoreceptor_columns(con, ann, sex)
+        self.side = np.asarray(side).astype(str)   # per photoreceptor, incl. inferred (A54b)
         az = np.zeros(len(self.idx))
         el = np.zeros(len(self.idx))
         for s, sign in (("right", -1.0), ("left", 1.0)):
@@ -345,9 +364,10 @@ class Vision:
 # ------------------------------------------------------------------------------------------
 # hearing (Johnston's organ, courtship song) and contact chemosensation
 class Hearing:
-    def __init__(self, ann: pd.DataFrame):
+    def __init__(self, ann: pd.DataFrame, con=None):
         t = pd.Series(ann.type.to_numpy())
         self.idx = np.flatnonzero(t.str.match(r"^JO-B").to_numpy())
+        self.side = infer_side(con, ann, self.idx, ann.side.astype(str).to_numpy()[self.idx])
 
     def rates(self, song_amp: float) -> np.ndarray:
         # ASSUMPTION(A55): JO-B rate ~ 150 Hz at full near-field song amplitude
@@ -359,12 +379,12 @@ class WindSense:
     larger on the side facing the wind (Yorozu et al. 2009; Suver et al. 2019).
     ASSUMPTION(A97): rate = 5 + 60 Hz per m/s, x (0.5 + 0.5 * cos(angle to that antenna))."""
 
-    def __init__(self, ann: pd.DataFrame):
+    def __init__(self, ann: pd.DataFrame, con=None):
         sub = pd.Series(ann.cell_sub_class.to_numpy())
         t = pd.Series(ann.type.to_numpy())
         m = (sub == "wind_gravity") | t.str.match(r"^JO-(C|E)").to_numpy()
         self.idx = np.flatnonzero(m.to_numpy() if hasattr(m, "to_numpy") else m)
-        self.side = ann.side.to_numpy()[self.idx]
+        self.side = infer_side(con, ann, self.idx, ann.side.astype(str).to_numpy()[self.idx])
 
     def rates(self, wind_xy, yaw) -> np.ndarray:
         w = np.asarray(wind_xy, float)

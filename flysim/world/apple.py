@@ -79,7 +79,11 @@ class Apple:
         if not self.cut:
             qt *= 0.05  # intact skin: microbes only at micro-wounds; apples keep for weeks
         o2f = self.o2_pct / (self.o2_pct + p.k_o2_pct)
-        for _ in range(int(np.ceil(hours / dt_h))):
+        if hours <= 0:
+            return
+        n = max(1, int(np.ceil(hours / dt_h - 1e-9)))
+        dt_h = hours / n               # exact total time for any `hours` (no overshoot)
+        for _ in range(n):
             mono_s = s.sugar / (p.k_sugar + s.sugar)
             g_y = qt * p.mu_yeast * s.yeast * (1 - s.yeast) * mono_s
             used = min(s.sugar, qt * p.q_sugar * s.yeast * mono_s * dt_h)  # fermentation ~ biomass

@@ -24,7 +24,10 @@ orn = np.flatnonzero(t.str.match("^ORN_").to_numpy())
 A = np.flatnonzero(t.str.match("^ORN_(DM1|DM4|VA2)$").to_numpy())
 B = np.flatnonzero(t.str.match("^ORN_(DL5|DM2|VM2)$").to_numpy())
 print(ds, "PPL1-g1pedc", len(g1), "MBON-g1pedc", len(m11))
+w_naive = b.w.copy()
 for eta in etas:
+    b.w[:] = w_naive                     # every eta starts from the naive weights
+    b._gpu_w_dirty = True
     b.enable_plasticity(kc, mb, np.concatenate([ppl1, pam]), eta_dep=eta)
     idx = np.concatenate([orn, g1]); b.reset(1); b.set_poisson_targets(idx)
 

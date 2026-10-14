@@ -104,8 +104,8 @@ def run_series(name, n_reps=5, processes=1, seed0=100, out=None, **override):
     """Run n_reps independent replicates of every group (independent seed streams per group).
     Each call gets a run_id; analyze() uses only the latest run unless told otherwise."""
     p = PROTOCOLS[name]
-    if p.get("reciprocal") and n_reps % 2:
-        n_reps += 1   # reciprocal halves come in pairs
+    if p.get("reciprocal") and n_reps % 4:
+        n_reps += 4 - n_reps % 4   # reciprocal pairs, sides balanced over every 4 seeds
     kw = {**p["kwargs"], **override}
     if "retention_h" in kw:
         kw["retention_h"] = tuple(kw["retention_h"])
@@ -148,6 +148,11 @@ def _select(rows, run_id="latest", model_version=None):
             return [], None
     if run_id != "all":
         rows = [r for r in rows if r.get("run_id") == run_id]
+    else:   # pooled runs: the same (group, seed) is one replicate, keep its latest record
+        last = {}
+        for r in rows:
+            last[(r.get("group"), r.get("seed"))] = r
+        rows = list(last.values())
     return rows, run_id
 
 

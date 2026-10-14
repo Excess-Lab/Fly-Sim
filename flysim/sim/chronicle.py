@@ -12,6 +12,7 @@ Layout of a run directory  results/runs/<run_id>/
 """
 import base64
 import json
+import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -118,9 +119,22 @@ class Chronicle:
     FULL_EVERY = 10    # whole-brain frame at least once per second
 
     def __init__(self, run_id: str | None = None, root: Path = RUNS, meta: dict | None = None):
-        self.run_id = run_id or time.strftime("%Y%m%d-%H%M%S")
-        self.dir = Path(root) / self.run_id
-        self.dir.mkdir(parents=True, exist_ok=True)
+        Path(root).mkdir(parents=True, exist_ok=True)
+        if run_id:
+            self.run_id = run_id
+            self.dir = Path(root) / run_id
+            self.dir.mkdir(parents=True, exist_ok=True)
+        else:   # unique even for runs started in the same second
+            import uuid
+            while True:
+                self.run_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
+                self.dir = Path(root) / self.run_id
+                try:
+                    self.dir.mkdir(exist_ok=False)
+                    break
+                except FileExistsError:
+                    continue
+        self.lock = threading.RLock()     # the sim thread writes, HTTP threads read
         self.fh = open(self.dir / "frames.jsonl", "ab")
         self.offsets = []          # byte offset of every written frame
         self.pending = deque()     # (index, frame) not yet written
@@ -134,11 +148,12 @@ class Chronicle:
                 self.important.append(e["frame"])
 
     def add(self, frame: dict):
-        frame["i"] = self.n
-        self.pending.append(frame)
-        self.n += 1
-        while len(self.pending) > self.WINDOW:
-            self._write(self.pending.popleft())
+        with self.lock:
+            frame["i"] = self.n
+            self.pending.append(frame)
+            self.n += 1
+            while len(self.pending) > self.WINDOW:
+                self._write(self.pending.popleft())
 
     def _full(self, i):
         if i % self.FULL_EVERY == 0:
@@ -153,25 +168,30 @@ class Chronicle:
             fr["light"] = True
         fr = {k: v for k, v in fr.items() if k != "events"}
         line = (json.dumps(fr, ensure_ascii=False, default=float) + "\n").encode()
-        self.offsets.append(self.fh.tell())
+        pos = self.fh.tell()
         self.fh.write(line)
+        self.fh.flush()
+        self.offsets.append(pos)            # visible to readers only once the line is written
 
     def flush(self):
-        while self.pending:
-            self._write(self.pending.popleft())
-        self.fh.flush()
+        with self.lock:
+            while self.pending:
+                self._write(self.pending.popleft())
+            if not self.fh.closed:
+                self.fh.flush()
 
     def read(self, i: int) -> dict | None:
-        if i < 0 or i >= self.n:
-            return None
-        if i >= len(self.offsets):
-            for fr in self.pending:
-                if fr["i"] == i:
-                    return fr
-            return None
-        self.fh.flush()
+        with self.lock:
+            if i < 0 or i >= self.n:
+                return None
+            if i >= len(self.offsets):
+                for fr in list(self.pending):
+                    if fr["i"] == i:
+                        return fr
+                return None
+            off = self.offsets[i]
         with open(self.dir / "frames.jsonl", "rb") as r:
-            r.seek(self.offsets[i])
+            r.seek(off)
             return json.loads(r.readline())
 
     def save_logs(self, log, manifest: dict | None = None):
@@ -183,8 +203,10 @@ class Chronicle:
         (self.dir / "index.json").write_text(json.dumps({"n": self.n, "offsets": self.offsets}))
 
     def close(self):
-        self.flush()
-        self.fh.close()
+        with self.lock:
+            self.flush()
+            if not self.fh.closed:
+                self.fh.close()
 
 
 class SavedRun:
@@ -226,7 +248,7 @@ def list_runs():
         if not (d / "frames.jsonl").exists():
             continue
         meta = {}
-        for name in ("manifest.json", "meta.json"):
+        for name in ("meta.json", "manifest.json"):     # meta.json carries the user's title
             if (d / name).exists():
                 try:
                     meta = json.loads((d / name).read_text())

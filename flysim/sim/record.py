@@ -1,5 +1,6 @@
 """Run a world and record behaviour, internal state and whole-brain activity (sparse)."""
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -11,18 +12,30 @@ KEY_RATES = ["fwd", "back", "turn_DNa02", "gf", "takeoff", "flight_power", "land
              "song", "receptive", "arousal_P1"]
 
 
+# per-thread observer: the web app's ExperimentRun registers a callback for recorders created in
+# its own thread (no global monkey-patching, so concurrent experiments never mix)
+HOOKS = threading.local()
+
+
+class Cancelled(Exception):
+    """Raised inside Recorder.run when the observer asked to stop the experiment."""
+
+
 class Recorder:
     def __init__(self, world, frame_dt: float = 0.05, title: str = "эксперимент"):
         from flysim.sim.chronicle import Chronicle
         self.world = world
         self.frame_dt = frame_dt
-        self.chron = Chronicle(run_id=f"{time.strftime('%Y%m%d-%H%M%S')}-{abs(hash(title)) % 10000:04d}",
-                               meta={"title": title})
+        self.chron = Chronicle(meta={"title": title})       # unique id
+        self.cancel = False
         self._chron_every = max(1, int(round(0.1 / frame_dt)))   # chronicle at 10 frames/s
         self._k = 0
         self.frames = {f.cfg.name: [] for f in world.flies}
         self.spikes = {f.cfg.name: [] for f in world.flies}  # per frame: (idx uint32, cnt uint16)
         self.log = EventLog()
+        cb = getattr(HOOKS, "on_new", None)
+        if cb is not None:
+            cb(self)
 
     def snap(self, t):
         from flysim.sim.chronicle import make_frame
@@ -59,6 +72,8 @@ class Recorder:
         per_frame = max(1, int(round(self.frame_dt / dt)))
         start = time.time()
         for k in range(n):
+            if self.cancel:
+                raise Cancelled()
             w.step(dt)
             t = t0 + (k + 1) * dt
             if (k + 1) % per_frame == 0:

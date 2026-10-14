@@ -20,6 +20,7 @@ ap.add_argument("action", choices=["plan", "run", "stats", "list"])
 ap.add_argument("name", nargs="?")
 ap.add_argument("n", nargs="?", type=int, default=5)
 ap.add_argument("--proc", type=int, default=1)
+ap.add_argument("--seed0", type=int, default=100, help="first seed; use a different value on each PC/run to get new replicates")
 ap.add_argument("--speed", type=float, default=10.0, help="wall s per simulated s per fly")
 ap.add_argument("--run", default="latest", help="run_id to analyse, 'latest' (default) or 'all'")
 ap.add_argument("--version", default=None, help="only records of this model_version")
@@ -30,7 +31,7 @@ if a.action == "list":
 elif a.action == "plan":
     print(json.dumps(P.compute_budget(a.name, a.n, a.speed), indent=1))
 elif a.action == "run":
-    P.run_series(a.name, n_reps=a.n, processes=a.proc)
+    P.run_series(a.name, n_reps=a.n, processes=a.proc, seed0=a.seed0)
     print(json.dumps(P.analyze(a.name), indent=1, ensure_ascii=False))
 else:
     print(json.dumps(P.analyze(a.name, run_id=a.run, model_version=a.version), indent=1,

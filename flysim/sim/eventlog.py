@@ -344,16 +344,56 @@ class EventLog:
         wr.writerows(rows)
         return buf.getvalue()
 
+    # ---- streaming to disk (long runs: bounded memory, nothing lost on a hard stop) ----------
+    def stream_to(self, out_dir):
+        from pathlib import Path
+        self._stream = Path(out_dir)
+        self._stream.mkdir(parents=True, exist_ok=True)
+        self._ev_written = 0
+        for name, fields in (("timeseries.csv", TS_FIELDS), ("apple.csv", APPLE_FIELDS)):
+            f = self._stream / name
+            if not f.exists():
+                f.write_text(",".join(fields) + "\n")
+
+    def flush_stream(self):
+        """Append rows/events produced since the last call; keep only a short tail in memory."""
+        st = getattr(self, "_stream", None)
+        if st is None:
+            return
+        for name, rows, fields in (("timeseries.csv", self.rows, TS_FIELDS),
+                                   ("apple.csv", self.apple_rows, APPLE_FIELDS)):
+            if rows:
+                buf = io.StringIO()
+                csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore").writerows(rows)
+                with open(st / name, "a") as fh:
+                    fh.write(buf.getvalue())
+                rows.clear()
+        new = self.events[self._ev_written:]
+        if new:
+            with open(st / "events.jsonl", "a") as fh:
+                fh.write("".join(json.dumps(e, ensure_ascii=False, default=float) + "\n" for e in new))
+            self._ev_written = len(self.events)
+
     def timeseries_csv(self) -> str:
+        if getattr(self, "_stream", None) is not None:
+            self.flush_stream()
+            return (self._stream / "timeseries.csv").read_text()
         return self._csv(self.rows, TS_FIELDS)
 
     def apple_csv(self) -> str:
+        if getattr(self, "_stream", None) is not None:
+            self.flush_stream()
+            return (self._stream / "apple.csv").read_text()
         return self._csv(self.apple_rows, APPLE_FIELDS)
 
     def save(self, out_dir):
         from pathlib import Path
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
+        if getattr(self, "_stream", None) is not None and Path(self._stream).resolve() == out.resolve():
+            self.flush_stream()
+            (out / "events.txt").write_text(self.events_text())
+            return
         (out / "events.jsonl").write_text(self.events_jsonl())
         (out / "events.txt").write_text(self.events_text())
         (out / "timeseries.csv").write_text(self.timeseries_csv())

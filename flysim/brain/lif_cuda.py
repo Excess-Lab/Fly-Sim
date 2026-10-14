@@ -106,12 +106,12 @@ def k_poisson(v, stim_idx, stim_p, stim_w, rng):
 
 
 @cuda.jit
-def k_noise(v, rfc_left, bg_idx, bg_p, bg_amp, rng, off):
+def k_noise(v, rfc_left, frozen, bg_idx, n_bg, bg_p, bg_amp, rng, off):
     j = cuda.grid(1)
-    if j < bg_idx.shape[0]:
+    if j < n_bg:
         if xoroshiro128p_uniform_float64(rng, off + j) < bg_p:
             i = bg_idx[j]
-            if rfc_left[i] == 0:
+            if rfc_left[i] == 0 and frozen[i] == 0:
                 s = bg_amp if xoroshiro128p_uniform_float64(rng, off + j) < 0.5 else -bg_amp
                 cuda.atomic.add(v, i, s)
 
@@ -150,7 +150,7 @@ def k_spikes(spk_list, spk_n, out_slot, s, v, g, wad, b_w, rfc_left, rfc_len, co
 
 
 @cuda.jit
-def k_spikelets(spk_list, spk_n, rfc_left, gk_ptr, gk_tgt, gk_amt, v):
+def k_spikelets(spk_list, spk_n, rfc_left, frozen, gk_ptr, gk_tgt, gk_amt, v):
     # after resets, like the CPU loop (targets reset in this step are refractory and skipped)
     q = cuda.grid(1)
     if q >= spk_n[0]:
@@ -158,7 +158,7 @@ def k_spikelets(spk_list, spk_n, rfc_left, gk_ptr, gk_tgt, gk_amt, v):
     i = spk_list[q]
     for e in range(gk_ptr[i], gk_ptr[i + 1]):
         t = gk_tgt[e]
-        if rfc_left[t] == 0:
+        if rfc_left[t] == 0 and frozen[t] == 0:
             cuda.atomic.add(v, t, gk_amt[e])
 
 
@@ -279,6 +279,10 @@ class CudaRunner:
     def run(self, n_steps, stim_idx, stim_p, stim_w, ks, ki, counts, rec_mask, rec_out):
         b, d = self.b, self.d
         p = b.p
+        seed = getattr(b, "_gpu_seed", None)
+        if seed is not None and seed != getattr(self, "_seed", None):   # reset(seed): reproducible
+            self.rng = create_xoroshiro128p_states(max(1, b.con.n), seed=seed + 1)
+            self._seed = seed
         if b._gpu_dirty:            # reset / plasticity switched: host state is the truth
             self.push_state()
             self.d["w"] = cuda.to_device(np.ascontiguousarray(b.w))
@@ -319,8 +323,9 @@ class CudaRunner:
                 k_gap_apply[_blocks(self.n_gap), TPB](d["v"], self.frozen, d["gj_a"], d["gj_b"], dv)
             if n_stim:
                 k_poisson[_blocks(n_stim), TPB](d["v"], d_stim_idx, d_stim_p, stim_w, self.rng)
-            if bg_p > 0.0:
-                k_noise[_blocks(n_bg), TPB](d["v"], d["rfc_left"], d["bg_idx"], bg_p, p.bg_amp_mv, self.rng, 0)
+            if bg_p > 0.0 and n_bg > 0:
+                k_noise[_blocks(n_bg), TPB](d["v"], d["rfc_left"], self.frozen, d["bg_idx"], n_bg, bg_p,
+                                            p.bg_amp_mv, self.rng, 0)
             lo = kpos
             while kpos < len(ks) and ks[kpos] == s:
                 kpos += 1
@@ -334,9 +339,9 @@ class CudaRunner:
                                       d["x_tr"], d["kc_new"], d["dan_ptr"], d["dan_m"], d["dan_a"],
                                       d["da_tr"], d["da_new"])
             if self.n_gap:
-                k_spikelets[_blocks(n), TPB](self.spk_list, self.spk_n, d["rfc_left"], d["gk_ptr"],
+                k_spikelets[_blocks(n), TPB](self.spk_list, self.spk_n, d["rfc_left"], self.frozen, d["gk_ptr"],
                                              d["gk_tgt"], d["gk_amt"], d["v"])
-            if b.pl_on and (step + 1) % PLAST_EVERY == 0:
+            if b.pl_on and self.n_pe > 0 and (step + 1) % PLAST_EVERY == 0:
                 b.pl_c[9] += 1.0
                 lam = max(b.pl_c[8], 1.0 - 1.0 / b.pl_c[9])
                 k_plast_gate[_blocks(self.n_m), TPB](d["da_tr"], d["da_new"], d["da_base"], c,

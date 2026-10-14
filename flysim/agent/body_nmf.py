@@ -56,10 +56,19 @@ class NMFArena:
                 self.world.ground_geoms.append(g)
                 self.wall_ids_names.append(f"wall{k}")
         self.flies = {}
-        for name, pos, yaw in names_poses:
-            fly = make_locomotion_fly(name=name, add_adhesion=True, colorize=False)
+        for item in names_poses:
+            name, pos, yaw = item[:3]
+            R = item[3] if len(item) > 3 else None
             q = Rotation3D("quat", [np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)])
-            self.world.add_fly(fly, [pos[0], pos[1], 0.8], q,
+            spawn = [pos[0], pos[1], 0.8]
+            if R is not None and pos[2] > 1.5:
+                # standing on an apple or a wall: respawn in the same place and orientation
+                from scipy.spatial.transform import Rotation as _Rot
+                x, y, z, w = _Rot.from_matrix(np.asarray(R, float)).as_quat()
+                q = Rotation3D("quat", [w, x, y, z])
+                spawn = list(np.asarray(pos, float) + 0.5 * np.asarray(R, float)[:, 2])
+            fly = make_locomotion_fly(name=name, add_adhesion=True, colorize=False)
+            self.world.add_fly(fly, spawn, q,
                                bodysegs_with_ground_contact=ContactBodiesPreset.TIBIA_TARSUS_ONLY,
                                add_ground_contact_sensors=False)
             self.flies[name] = fly
@@ -283,15 +292,17 @@ class NMFBody:
     def eye(self, apple_c):
         return self.arena.head_pos(self.name) if self.mode != "fly" else self.pos + np.array([0, 0, 0.3])
 
-    def step(self, cmd, dt, apple_c, apple_r, arena, spontaneous=True, o2_pct=20.9):
+    def step(self, cmd, dt, apple_c, apple_r, arena, spontaneous=True, o2_pct=20.9, vigor_factor=1.0):
         """Translate DN commands into NeuroMechFly descending drive (applied during advance)."""
         p = self.p
-        vigor = float(np.clip((o2_pct - 2.0) / 6.0, 0.0, 1.0))  # A70
+        # A70 hypoxia ramp x cold/poison (A93, A72) - separately, not folded into the O2 value
+        vigor = float(np.clip((o2_pct - 2.0) / 6.0, 0.0, 1.0)) * float(np.clip(vigor_factor, 0.0, 1.0))
         self.proboscis = cmd["proboscis"] and self.mode == "walk" and vigor > 0
         self.wing_ext = cmd.get("song", 0.0) if self.mode == "walk" and vigor > 0 else 0.0
         if self.mode == "walk":
             if cmd["takeoff"] and vigor > 0:
                 self.mode, self.flight_t = "fly", 0.0
+                self.yaw_rate = 0.0       # a new flight starts without the last flight's rotation
                 self.arena.kinematic[self.name] = (self.pos + 3.0 * self.normal(apple_c), self.yaw)
                 self._n0 = self.normal(apple_c)
                 return

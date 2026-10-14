@@ -79,11 +79,11 @@ class Body:
         self.h /= max(np.linalg.norm(self.h), 1e-9)
 
     def step(self, cmd: dict, dt: float, apple_c: np.ndarray, apple_r: float, arena: float,
-             spontaneous: bool = True, o2_pct: float = 20.9):
+             spontaneous: bool = True, o2_pct: float = 20.9, vigor_factor: float = 1.0):
         p = self.p
         # ASSUMPTION(A70): hypoxia. Flies keep moving down to ~5-8 % O2, slow down below, and fall
         # into reversible stupor at <~2 % within a minute (Haddad et al. 1997; Krishnan 1997).
-        vigor = float(np.clip((o2_pct - 2.0) / 6.0, 0.0, 1.0))
+        vigor = float(np.clip((o2_pct - 2.0) / 6.0, 0.0, 1.0)) * float(np.clip(vigor_factor, 0.0, 1.0))
         if vigor <= 0.0:
             self.proboscis = False
             self.wing_ext = 0.0

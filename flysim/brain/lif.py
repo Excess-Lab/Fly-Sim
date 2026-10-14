@@ -199,7 +199,7 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
             n_ev = np.random.poisson(bg_idx.shape[0] * bg_p)
             for _ in range(n_ev):
                 i = bg_idx[np.random.randint(bg_idx.shape[0])]
-                if rfc_left[i] == 0:
+                if rfc_left[i] == 0 and frozen[i] == 0:
                     v[i] += bg_amp if np.random.random() < 0.5 else -bg_amp
         # reset + schedule outgoing spikes
         out_slot = (step + D - 1) % D
@@ -217,7 +217,7 @@ def _step(n_steps, t0, v, g, rfc_left, rfc_len, ring, indptr, post, w, gain,
                 for e in range(indptr[i], indptr[i + 1]):
                     ring[out_slot, post[e]] += w[e]
                 for e in range(gk_ptr[i], gk_ptr[i + 1]):   # spikelet through gap junctions
-                    if rfc_left[gk_tgt[e]] == 0:
+                    if rfc_left[gk_tgt[e]] == 0 and frozen[gk_tgt[e]] == 0:
                         v[gk_tgt[e]] += gk_amt[e]
                 if pl_on:
                     x_tr[i] += 1.0
@@ -354,6 +354,7 @@ class Brain:
         return self.n_dropped
 
     def disable_plasticity(self):
+        self._pull_gpu()
         self._gpu_dirty = True
         z64, z32, zf = np.zeros(0, np.int64), np.zeros(0, np.int32), np.zeros(0, np.float32)
         self.pl_on = False
@@ -372,12 +373,13 @@ class Brain:
                           eta_dep=2.0, eta_rec=0.02, tau_forget_s=3 * 3600.0,
                           eta_pot=0.5, w_max_ratio=2.0, tau_base_s=20.0,
                           base_threshold=1.2):
-        """Make KC->MBON synapses plastic, gated by dopamine.
+        """Make KC->MBON synapses plastic, gated by dopamine. (Host state is refreshed first.)
 
         Which DAN modulates which MBON is taken from the connectome itself: a DAN spike adds
         dopamine to MBON m in proportion to its synapse count onto m, relative to its strongest
         MBON target (DANs and MBONs share MB compartments; ASSUMPTION A20).
         """
+        self._pull_gpu()
         con = self.con
         kc, mbon, dan = (np.asarray(x, np.int64) for x in (kc, mbon, dan))
         n = con.n
@@ -444,7 +446,13 @@ class Brain:
         # MBONs without KC input in this connectome (den = 0) have nothing to learn: report 1
         return np.where(den > 0, num / np.maximum(den, 1e-9), 1.0)
 
+    def _pull_gpu(self):
+        """Bring the GPU state back to the host before the host edits it (traces survive)."""
+        if getattr(self, "_gpu", None) is not None and not self._gpu_dirty and self._gpu.state_on_gpu:
+            self._gpu.pull_state()
+
     def reset(self, seed: int | None = None):
+        self._pull_gpu()
         n = self.con.n
         if getattr(self, "v_rest", None) is None or len(self.v_rest) != n:
             self.v_rest = np.full(n, self.p.v_0, dtype=np.float64)
@@ -461,6 +469,7 @@ class Brain:
         self.t_step = 0
         if seed is not None:
             self._rng = np.random.default_rng(seed)
+            self._gpu_seed = int(seed)      # GPU random states are re-created from it
 
     def set_poisson_targets(self, idx):
         """Neurons that receive Poisson drive have no refractory period (Shiu et al. 2024)."""

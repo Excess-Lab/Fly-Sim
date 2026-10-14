@@ -72,9 +72,9 @@ class Fly:
         self.gust = Gustation(ann)
         self.thermo = Thermo(ann)
         self.vision = Vision(con, ann, ds)
-        self.hearing = Hearing(ann)
+        self.hearing = Hearing(ann, con=con)
         self.intero = Interoception(ann)
-        self.windsense = WindSense(ann)
+        self.windsense = WindSense(ann, con=con)
         # JO neurons used for hearing (JO-B) and wind (JO-C/E) are disjoint
         # contact pheromone neurons (male: ppk23 receptor class) ASSUMPTION(A57)
         rec = ann["receptor"] if "receptor" in ann.columns else pd.Series([""] * len(ann))
@@ -137,6 +137,7 @@ class Fly:
         self.last_egg_t = -1e9
         self.age_d = 3.0
         self.pc1 = np.flatnonzero(t.str.match(r"^pC1").to_numpy())
+        self.pc1_g0 = self.brain.gain[self.pc1].copy()
 
     def set_mated(self, mate_name: str):
         """ASSUMPTION(A60): male sex peptide silences SPSN -> SAG input to pC1 in the female
@@ -145,7 +146,7 @@ class Fly:
         self.mated = True
         self.mate = mate_name
         if self.cfg.sex == "female":
-            self.brain.gain[self.pc1] = 0.3
+            self.brain.gain[self.pc1] = self.pc1_g0 * np.float32(0.3)   # x0.3 of the calibrated gain
 
     # ------------------------------------------------------------------
     def antenna_positions(self):
@@ -178,7 +179,7 @@ class Fly:
         contact = (1.0 if self.body.proboscis else 0.3) if on_apple else 0.0
         taste = world.taste_at(self.body.pos) if on_apple else {}
         taste = dict(taste)
-        if world.bitter_zone_at(self.body.pos):
+        if world.bitter_zone_at(self.body.pos) and self.body.mode == "walk" and self.body.surface == "floor":
             taste["bitter"] = 1.0
             contact = max(contact, 0.3)
         r_gust = self.gust.rates(taste, contact)
@@ -228,7 +229,8 @@ class Fly:
             punish = shock   # A24 on top of the nociceptor route (A24b); off = connectome only
         r_ppl1 = np.full(len(self.ppl1), punish)
         reward = 0.0
-        if self.cfg.us_reward_shortcut and self.body.proboscis and on_apple:
+        if self.cfg.us_reward_shortcut and self.body.proboscis and on_apple and \
+                self.meta.crop_ul < self.meta.p.meal_volume_ul:     # only while actually ingesting
             reward = 30.0 * ap.nutrition()["sugar_frac"] * gains["sugar"]
         r_pam = np.full(len(self.pam), reward)
         self.injected = {"PPL1": punish, "PAM": reward}   # spikes added by A24/A25, for honest logs
@@ -239,10 +241,10 @@ class Fly:
         for sd in ("left", "right"):
             if sch.antenna[sd] != "intact":
                 r_olf[side_olf == sd] = 0.0
-                r_hear[side_th[self.hearing.idx] == sd] = 0.0
+                r_hear[self.hearing.side == sd] = 0.0
                 r_th[side_th[self.thermo.idx] == sd] = 0.0
             if sch.eye[sd] != "open":
-                r_vis[side_th[self.vision.idx] == sd] = 5.0
+                r_vis[self.vision.side == sd] = 5.0
         if len(self.noci_idx):
             off = 0
             for leg, ids in self.leg_noci.items():
@@ -285,8 +287,8 @@ class Fly:
             if self.dying is not None and self.nenergy.all_failed():
                 self.dead = self.dying
         if len(self.lptc):
-            c = getattr(self, "cmd", None) or {}
-            moving = float(c.get("forward_pop" if self.cfg.locomotion == "brain" else "forward", 0.0)) > 0.2
+            drv = getattr(getattr(self.body, "arena", None), "drive", {}).get(self.cfg.name, None)
+            moving = drv is not None and float(np.mean(drv)) > 0.2      # actual walking drive
             st = 1.6 if self.body.mode == "fly" else (1.3 if moving else 1.0)
             self.brain.gain[self.lptc] = self.lptc_g0 * np.float32(st)
         n_steps = int(round(dt * 1000 / self.brain.p.dt))
@@ -314,19 +316,19 @@ class Fly:
                 self.lunging -= dt
             near = world.nearest_apple(self.body.pos)
             self.body.step(cmd, dt, near.center, near.p.radius_mm, world.arena,
-                           spontaneous=False, o2_pct=world.o2_pct * self.meta.health * self._chill())
+                           spontaneous=False, o2_pct=world.o2_pct, vigor_factor=self.meta.health * self._chill())
         elif self.cfg.locomotion == "brain":
             cmd = dict(self.cmd)
             cmd["forward"] = cmd["forward_pop"]   # A102: brain-generated forward drive, no A30
             near = world.nearest_apple(self.body.pos)
             self.body.step(cmd, dt, near.center, near.p.radius_mm, world.arena,
                            spontaneous=False,
-                           o2_pct=world.o2_pct * self.meta.health * self._chill())
+                           o2_pct=world.o2_pct, vigor_factor=self.meta.health * self._chill())
         else:
             near = world.nearest_apple(self.body.pos)
             self.body.step(self.cmd, dt, near.center, near.p.radius_mm, world.arena,
                            spontaneous=self.cfg.spontaneous and self.dying is None,
-                           o2_pct=world.o2_pct * self.meta.health * self._chill())  # poison, cold
+                           o2_pct=world.o2_pct, vigor_factor=self.meta.health * self._chill())  # poison, cold
         # ASSUMPTION(A61): a mated female standing on the fruit lays an egg when oviDNs fire,
         # at most one egg per 30 s
         if (self.cfg.sex == "female" and self.mated and self.cmd.get("oviposit")
@@ -341,9 +343,11 @@ class Fly:
         self.meta.o2_pct = world.o2_pct
         on_food = self.body.proboscis and self.body.surface == "apple"
         nut = world.nearest_apple(self.body.pos).nutrition()
+        crop_before = self.meta.crop_ul
+        ingests = on_food and crop_before < self.meta.p.meal_volume_ul   # crop not yet full
         self.meta.step(dt, nut["sugar_frac"], ingesting=on_food)
         dose = nut["patulin"] * self.meta.p.ingest_nl_per_s * 1e-3 * dt / self.meta.p.meal_volume_ul \
-            if on_food else 0.0
+            if ingests else 0.0
         self.meta.ingest_toxin(dose, dt)
         cause = self.mortality.step(dt, self.meta.energy, self.thermal.T, world.ambient_c,
                                     world.o2_pct, self.meta.health)
@@ -397,6 +401,7 @@ class Fly:
                 self.dead = cause
                 break
         self.brain.forget(hours * 3600)
+        self.thermo._t_slow = world.ambient_c     # no false "cooling" signal after the break
         self.age_d += hours / 24
         self.copulating = False
 

@@ -3,7 +3,8 @@ services:
     build: .
     image: flysim:latest
     ports:
-      - "8800:8800"
+      # only this computer can open the app (it has no login); use "8800:8800" to share on a LAN
+      - "127.0.0.1:8800:8800"
     volumes:
       # connectome data (~1.2 GB, downloaded on first start in the background) and caches stay on your disk
       - ./data:/app/data
@@ -12,3 +13,4 @@ services:
     environment:
       - NUMBA_NUM_THREADS=6
     restart: unless-stopped
+    stop_grace_period: 90s   # runs save their logs on docker stop

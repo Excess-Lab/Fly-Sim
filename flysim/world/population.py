@@ -89,8 +89,9 @@ class Population:
             k = self.rng.poisson(lam)
             if k:
                 top = ap.center + np.array([0, 0, ap.p.radius_mm])  # on the fruit surface
-                self.lay(now_h, f.cfg.name, getattr(f, "mate", "?"), top, k, apple_idx=idx,
-                         offline=True)
+                for t_lay in np.sort(self.rng.uniform(now_h, now_h + hours, k)):   # spread over the interval
+                    self.lay(float(t_lay), f.cfg.name, getattr(f, "mate", "?"), top, 1, apple_idx=idx,
+                             offline=True)
                 f.events.append((round(f.t, 3), f"laid {k} eggs off-line ({hours:.0f} h, scripted A63b)"))
         # mortality applies to the time each individual spends as larva/pupa within the interval
         surv_by_apple = [self.survival_per_day(a) for a in apples]

@@ -54,7 +54,8 @@ def _apple(age_days, center=(0.0, 0.0), radius=35.0):
 
 
 def _frac_in(frames, center, radius, t0=None, t1=None):
-    xs = [f for f in frames if (t0 is None or f["t"] >= t0) and (t1 is None or f["t"] <= t1)]
+    # half-open window (t0, t1]: a frame on a boundary belongs to one phase only
+    xs = [f for f in frames if (t0 is None or f["t"] > t0) and (t1 is None or f["t"] <= t1)]
     if not xs:
         return float("nan")
     c = np.asarray(center)
@@ -138,7 +139,8 @@ def tmaze_choice(cond="full", seed=0, retention_h=(0.0,), t_train=30.0, t_test=3
     is presented without. PI = time near CS- - time near CS+ (fraction of test) for this half;
     protocol.analyze() averages the two reciprocal halves into one N, as Tully & Quinn did.
     Retention: passive forgetting applied between training and each test (A23)."""
-    k_odour, k_side = seed % 2, (seed // 2) % 2
+    # reciprocal pair (seed, seed+1): CS+ swapped AND on opposite sides; every 4 seeds cover all
+    k_odour, k_side = seed % 2, (seed + seed // 2) % 2
     cs_plus, cs_minus = ODOURS[k_odour], ODOURS[1 - k_odour]
     x_plus = -40.0 if k_side == 0 else 40.0
     w = World(_apple(0, center=(-500.0, -500.0), radius=5.0), arena=50.0)

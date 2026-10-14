@@ -82,6 +82,12 @@ class NeuronEnergy:
         v = np.where(burst, -40.0, v)
         v = np.where(block, -120.0, v)
         coma = block.mean() > 0.5
+        if (self.terminal is None and o2_supply(max(o2_pct, 0.0)) >= 0.999 and not self.dead.any()
+                and (self.sd_t < 0).all() and self.E.min() > 0.9):   # firing alone keeps E < 1
+            self.active = False            # fully recovered: back to the exact normal model
+            self.E[:] = 1.0
+            self._in_coma = False
+            return self.base.astype(np.float64), np.zeros(len(self.E), bool)
         if coma and not self._in_coma:
             self.n_coma_events += 1
         self._in_coma = coma

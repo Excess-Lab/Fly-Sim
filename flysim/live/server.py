@@ -287,7 +287,8 @@ class Simulation:
         self.world = World(apple, apples=apples, arena=half, ambient_c=float(env["temp_c"]),
                            o2_pct=float(env["o2_pct"]), co2_ppm=float(env["co2_ppm"]), atm=atm,
                            seasonal=bool(wd["seasonal"]), base_temp_c=float(env["temp_c"]),
-                           plants=PlantWorld(soil=bool(wd["soil"]), moist=bool(wd["moist"])),
+                           plants=PlantWorld(soil=bool(wd["soil"]), moist=bool(wd["moist"]),
+                                             rng=np.random.default_rng([int(cfg.get("seed", 0) or 0), 1])),
                            wind=(float(wd.get("wind_speed", 0)) * np.cos(np.radians(float(wd.get("wind_dir_deg", 0)))),
                                  float(wd.get("wind_speed", 0)) * np.sin(np.radians(float(wd.get("wind_dir_deg", 0))))))
         if wd.get("climate") == "garden":
@@ -307,14 +308,16 @@ class Simulation:
         self.pending = []   # requests from the web page (add fly / apple), applied between steps
         self.passports = {}  # every fly that ever lived in this run (name -> Fly)
         self.title = "Свободная симуляция"
-        self.world.population = Population(max_adults=int(run["max_adults"]))
+        self.world.population = Population(max_adults=int(run["max_adults"]),
+                                           rng=np.random.default_rng([int(cfg.get("seed", 0) or 0), 2]))
         if hz["enabled"]:
             self.world.zones.append(Zone(center=(-35.0, 25.0), radius=float(hz["radius_mm"]),
                                          temp_c=float(hz["temp_c"])))
         self.log = EventLog()
         from flysim.sim.chronicle import Chronicle
-        self.chron = Chronicle(meta={"title": "Свободная симуляция", "config": cfg})
+        self.chron = Chronicle(meta={"title": str(cfg.get("title") or "Свободная симуляция")[:80], "config": cfg})
         self.chron.FULL_EVERY = 1 if run.get("neural_record", "every_frame") == "every_frame" else 10
+        self.log.stream_to(self.chron.dir)          # timeseries/events go to disk as they happen
         self.transplant_done = False
         self.run_id = self.chron.run_id
         self.frames = []
@@ -384,6 +387,8 @@ class Simulation:
         fr = make_frame(w, t_session, counts, self.log, self.status, index=self.chron.n)
         fr["run_id"] = self.run_id
         self.chron.add(dict(fr))
+        if self.chron.n % 100 == 0:                 # every ~10 s of simulated time
+            self.log.flush_stream()
         with self.lock:
             self.frames.append(fr)
             if len(self.frames) > 600:
@@ -442,7 +447,9 @@ class Simulation:
         wc = copy.copy(w)
         wc.apples, wc.atm = copy.deepcopy(w.apples), copy.deepcopy(w.atm)
         wc.weather = copy.deepcopy(w.weather)
-        wc.plants, wc.population, wc.flies, wc.arena_phys = None, None, [], None
+        wc.plants = copy.deepcopy(w.plants)          # soil respiration in the air balance
+        wc.population, wc.arena_phys = None, None
+        wc.flies = list(w.flies)                     # only counted (fly respiration), never stepped
         sims = [(f, copy.deepcopy(f.meta), copy.deepcopy(f.mortality)) for f in w.flies]
         out, t, step = {}, 0.0, 1.0 / 60.0
         while t < horizon_h - 1e-9 and len(out) < len(sims):
@@ -473,6 +480,7 @@ class Simulation:
         it are computed with the whole brain and body on, so dying is recorded neuron by neuron.
         No new adults are added (brood is only counted)."""
         w = self.world
+        self.finish_mode = True          # a further Stop aborts the live-out at once
         w.population.max_adults = 0
         start = w.clock_h
         lead_h = self.LAST_MINUTES / 60.0
@@ -546,6 +554,20 @@ class Simulation:
         added = False
         while self.pending:
             req = self.pending.pop(0)
+            try:
+                added |= self._apply_one(req)
+            except Exception as e:      # a bad request must never kill the simulation
+                self.log.events.append({"id": len(self.log.events), "clock_h": round(self.world.clock_h, 4),
+                                        "t": 0.0, "session": self.log.session, "frame": self.chron.n,
+                                        "fly": "мир", "sex": "", "type": "info", "cat": "info", "imp": 1,
+                                        "text": f"запрос экспериментатора отклонён: {e}", "others": [],
+                                        "pos": None, "data": {}})
+        if added:
+            self.world.rebuild_physics()
+
+    def _apply_one(self, req) -> bool:
+        added = False
+        for _once in (0,):
             if req.get("type") == "add_apple":
                 w = self.world
                 r = float(req.get("radius_mm", 30.0))
@@ -563,12 +585,12 @@ class Simulation:
                                         "text": f"экспериментатор положил яблоко {len(w.apples)} "
                                                 f"({a.summary()})", "others": [], "pos": [x, y, r], "data": {}})
                 added = True
-                continue
+                break
             if req.get("type") == "add_fly":
                 w = self.world
                 if len(w.flies) >= int(self.cfg["run"]["max_adults"]):
                     self.log._ev(w, w.flies[0], 0.0, "info", "лимит мух с мозгом достигнут") if w.flies else None
-                    continue
+                    break
                 ap = w.nearest_apple(np.zeros(3))
                 ang = np.random.default_rng().uniform(0, 2 * np.pi)
                 rr = ap.p.radius_mm + 10
@@ -577,8 +599,7 @@ class Simulation:
                                  ang + np.pi, float(self.cfg["flies"]["starved_h"]),
                                  note="добавлена экспериментатором")
                 added = True
-        if added:
-            self.world.rebuild_physics()
+        return added
 
     def limit_reached(self) -> str | None:
         run = self.cfg["run"]
@@ -590,6 +611,7 @@ class Simulation:
         return None
 
     def run(self):
+        ended_naturally = False
         try:
             run = self.cfg["run"]
             session = 0
@@ -633,19 +655,21 @@ class Simulation:
                 if not self.world.alive():
                     self.status = "жизнь в мире прекратилась: не осталось ни мух, ни потомства"
                     self.snapshot(0.0)
+                    ended_naturally = True
                     break
-            if not self.limit_reached() and not self.finish_mode:
+            if not self.limit_reached() and not self.finish_mode and not ended_naturally:
                 self.status = "остановлено"
         except Exception as e:  # surface errors in the UI instead of dying silently
             self.error = f"{e}\n{traceback.format_exc()}"
             self.status = "ошибка: " + str(e)
         finally:
-            self.stop_flag = True
             try:
                 self.snapshot(0.0)
                 self.chron.save_logs(self.log, self.manifest())
+                self.chron.close()
             except Exception:
                 pass
+            self.stop_flag = True
 
     def passport(self, name: str) -> dict | None:
         f = self.passports.get(name)
@@ -728,6 +752,7 @@ class ExperimentRun:
         self.status, self.error, self.result = "подготовка", None, None
         self.stop_flag, self.paused = False, False
         self.recorder = None
+        self.on_id = None          # App registers: called (old_id, new_id) when the recorder exists
         self.spec = PROTOCOLS[protocol]
         self.run_id = None
         self.started = time.time()
@@ -735,25 +760,40 @@ class ExperimentRun:
     def run(self):
         from flysim.sim import experiments as E
         from flysim.sim import record
-        orig = record.Recorder.__init__
         me = self
 
-        def hook(rec, *a, **k):
-            orig(rec, *a, **k)
+        def on_new(rec):
+            if me.stop_flag:
+                rec.cancel = True
+            old = me.run_id
             me.recorder = rec
             me.run_id = rec.chron.run_id
-        record.Recorder.__init__ = hook
+            if me.on_id is not None:
+                me.on_id(old, me.run_id)
+        record.HOOKS.on_new = on_new           # only recorders created in this thread
         try:
             self.status = "идёт эксперимент"
             fn = getattr(E, self.spec["function"])
             self.result = fn(seed=self.seed, **self.spec["groups"][self.group], **self.spec["kwargs"])
             self.status = "завершён"
+        except record.Cancelled:
+            self.status = "прерван экспериментатором (результат не сохранён в серию)"
         except Exception as e:
             self.error = f"{e}\n{traceback.format_exc()}"
             self.status = "ошибка: " + str(e)
         finally:
-            record.Recorder.__init__ = orig
+            record.HOOKS.on_new = None
+            if self.recorder is not None:
+                try:
+                    self.recorder.chron.close()
+                except Exception:
+                    pass
             self.stop_flag = True
+
+    def stop(self):
+        self.stop_flag = True
+        if self.recorder is not None:
+            self.recorder.cancel = True
 
     @property
     def chron(self):
@@ -777,7 +817,11 @@ class App:
         full = defaults()
         for g, items in (cfg or {}).items():
             if g in full:
+                if not isinstance(items, dict):
+                    raise ValueError(f"группа «{g}» должна быть объектом")
                 full[g].update({k: v for k, v in items.items() if k in full[g]})
+        if cfg.get("title"):
+            full["title"] = str(cfg["title"])[:80]
         sim = Simulation(full)
         if cfg.get("title"):
             sim.title = str(cfg["title"])[:80]
@@ -798,34 +842,55 @@ class App:
         th = self.threads.get(rid)
         if sim is not None and th is not None and th.is_alive():
             return False, "наблюдение ещё идёт — сначала остановите его"
-        self.sims.pop(rid, None)
-        self.threads.pop(rid, None)
-        d = (RUNS / rid).resolve()
-        if d.parent == RUNS.resolve() and d.is_dir():
-            shutil.rmtree(d)
-        return True, ""
+        dirs = {(RUNS / rid).resolve()}
+        ch = getattr(sim, "chron", None) if sim is not None else None
+        if ch is not None:
+            try:
+                ch.close()
+            except Exception:
+                pass
+            dirs.add(Path(ch.dir).resolve())
+        aliases = [k for k, v in self.sims.items() if sim is not None and v is sim] or [rid]
+        found = sim is not None
+        for k in aliases:
+            self.sims.pop(k, None)
+            self.threads.pop(k, None)
+        for d in dirs:
+            if d.parent == RUNS.resolve() and d.is_dir():
+                shutil.rmtree(d)
+                found = True
+        return (True, "") if found else (False, "нет такого наблюдения")
 
     def start_experiment(self, protocol, group, seed):
+        import uuid
         ex = ExperimentRun(protocol, group, int(seed))
-        th = threading.Thread(target=ex.run, daemon=True)
-        th.start()
-        for _ in range(600):           # wait until the recorder (and run id) exists
-            if ex.run_id or ex.error:
-                break
-            time.sleep(0.1)
-        rid = ex.run_id or f"exp-{int(time.time())}"
+        rid = f"exp-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}"
         ex.run_id = rid
+        th = threading.Thread(target=ex.run, daemon=True)
+
+        def on_id(old, new):           # the chronicle id is known once the recorder exists
+            self.sims[new] = ex
+            self.threads[new] = th
+        ex.on_id = on_id
         self.sims[rid] = ex
         self.threads[rid] = th
+        th.start()
         return rid
 
     def get(self, rid):
         return self.sims.get(rid)
 
+    def alive(self, rid) -> bool:
+        th = self.threads.get(rid)
+        return bool(th is not None and th.is_alive())
+
     def stop(self, rid=None):
         for k, sim in list(self.sims.items()):
             if rid is None or k == rid:
-                sim.stop_flag = True
+                if isinstance(sim, ExperimentRun):
+                    sim.stop()
+                else:
+                    sim.stop_flag = True
 
     @property
     def sim(self):          # most recent free simulation (backwards compatible endpoints)
@@ -905,9 +970,28 @@ def make_handler(app: App):
             return self._send(json.dumps(obj, ensure_ascii=False, default=float), code=code)
 
         def do_POST(self):
+            # cross-site requests from other web pages are refused (CSRF): same origin only
+            origin = self.headers.get("Origin")
+            host = self.headers.get("Host", "")
+            if origin and urlparse(origin).netloc != host:
+                return self._json({"error": "запрос с чужого сайта отклонён"}, 403)
+            try:
+                return self._do_post()
+            except Exception as e:
+                return self._json({"error": f"ошибка запроса: {e}"}, 400)
+
+        def do_GET(self):
+            try:
+                return self._do_get()
+            except Exception as e:
+                return self._json({"error": f"ошибка запроса: {e}"}, 400)
+
+        def _do_post(self):
             u = urlparse(self.path)
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
+            if not isinstance(body, dict):
+                return self._json({"error": "ожидался JSON-объект"}, 400)
             parts = [unquote(x) for x in u.path.strip("/").split("/")]
             if u.path in ("/api/start", "/api/experiment") and not data_status()["ready"]:
                 st = data_status()
@@ -921,27 +1005,38 @@ def make_handler(app: App):
                                                                   body.get("seed", 100))})
             if len(parts) == 4 and parts[:2] == ["api", "run"] and parts[3] == "delete":
                 ok, msg = app.delete(parts[2])
-                return self._json({"ok": ok, "error": None if ok else msg}, 200 if ok else 409)
+                return self._json({"ok": ok, "error": None if ok else msg},
+                                  200 if ok else (404 if msg.startswith("нет такого") else 409))
             if len(parts) == 4 and parts[:2] == ["api", "sim"]:
                 sim = app.get(parts[2])
                 if sim is None:
                     return self._json({"error": "нет такого наблюдения"}, 404)
                 what = parts[3]
                 if what == "stop":
-                    if isinstance(sim, Simulation) and not sim.finish_mode:
+                    if isinstance(sim, ExperimentRun):
+                        sim.stop()                 # cancels the protocol run
+                    elif not sim.finish_mode:
                         sim.finish_mode = True     # stop = the flies live out their lives and die
                     else:
-                        sim.stop_flag = True       # experiments, or a second press: stop at once
+                        sim.stop_flag = True       # second press: stop at once
                     return self._json({"ok": True})
                 if what == "pause":
                     sim.paused = not sim.paused
                     return self._json({"paused": sim.paused})
                 if what in ("add_fly", "add_apple") and isinstance(sim, Simulation):
+                    if what == "add_fly" and body.get("sex", "female") not in ("male", "female"):
+                        return self._json({"error": "пол: male или female"}, 400)
+                    if what == "add_apple":
+                        for k in ("radius_mm", "x_mm", "y_mm", "age_days"):
+                            if k in body and not isinstance(body[k], (int, float)):
+                                return self._json({"error": f"{k} должно быть числом"}, 400)
+                        if not 5 <= float(body.get("radius_mm", 30.0)) <= 60:
+                            return self._json({"error": "радиус яблока 5–60 мм"}, 400)
                     sim.pending.append({"type": what, **body})
                     return self._json({"ok": True})
             return self._json({"error": "не найдено"}, 404)
 
-        def do_GET(self):
+        def _do_get(self):
             u = urlparse(self.path)
             q = parse_qs(u.query)
             parts = [unquote(x) for x in u.path.strip("/").split("/")]
@@ -966,16 +1061,21 @@ def make_handler(app: App):
                 return self._json(data_status())
             if u.path == "/api/sims":
                 out = []
+                seen = set()
                 for rid, sim in reversed(list(app.sims.items())):
+                    if id(sim) in seen:        # an experiment is registered under two ids
+                        continue
+                    seen.add(id(sim))
                     w = sim.world
                     out.append({"run_id": rid, "title": sim.title, "status": sim.status,
-                                "running": not sim.stop_flag, "paused": bool(getattr(sim, "paused", False)), "error": bool(sim.error),
+                                "running": app.alive(rid), "paused": bool(getattr(sim, "paused", False)), "error": bool(sim.error),
                                 "kind": "experiment" if isinstance(sim, ExperimentRun) else "free",
                                 "flies": len(w.flies) if w else 0,
                                 "clock_h": round(w.clock_h, 2) if w else 0,
                                 "events": len(sim.log.events) if sim.log else 0})
                 from flysim.sim.chronicle import list_runs
-                live = set(app.sims)
+                live = set(app.sims) | {Path(s_.chron.dir).name for s_ in app.sims.values()
+                                        if getattr(s_, "chron", None) is not None}
                 return self._json({"sims": out, "saved": [r for r in list_runs() if r["run_id"] not in live][:50]})
             if u.path.startswith("/api/brain/"):
                 return self._json(brain_static(parts[-1]))
@@ -991,7 +1091,7 @@ def make_handler(app: App):
                     except Exception:
                         pass
                     return self._json({"run_id": parts[2], "title": sim.title, "status": sim.status,
-                                       "running": not sim.stop_flag, "paused": bool(getattr(sim, "paused", False)), "error": sim.error,
+                                       "running": app.alive(parts[2]), "paused": bool(getattr(sim, "paused", False)), "error": sim.error,
                                        "kind": "experiment" if isinstance(sim, ExperimentRun) else "free",
                                        "config": getattr(sim, "cfg", None), "manifest": man})
                 if what == "frames":
@@ -1081,10 +1181,19 @@ def main():
     app = App()
     srv = ThreadingHTTPServer((a.host, a.port), make_handler(app))
     print(f"Fly-Sim: откройте http://localhost:{a.port}", flush=True)
+
+    def shutdown(*_):
+        """docker stop / Ctrl+C: stop every run and let it write its logs before exiting."""
+        app.stop()
+        for th in list(app.threads.values()):
+            th.join(timeout=60)
+        raise SystemExit(0)
+    import signal
+    signal.signal(signal.SIGTERM, shutdown)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
-        app.stop()
+        shutdown()
 
 
 if __name__ == "__main__":

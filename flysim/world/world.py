@@ -139,14 +139,31 @@ class World:
         if not phys:
             self.arena_phys = None
             return
+        self._phys_builds = getattr(self, "_phys_builds", 0) + 1
+        poses = []
+        for f in phys:
+            b = f.body
+            on_surface = getattr(b, "mode", "walk") == "walk" and getattr(b, "surface", "floor") in ("apple", "wall")
+            poses.append((f.cfg.name, b.pos, b.yaw, getattr(b, "R", None) if on_surface else None))
+        # controller noise continues instead of restarting at the same point on every rebuild
         self.arena_phys = NMFArena([(a.center, a.p.radius_mm) for a in self.apples],
-                                   None, [(f.cfg.name, f.body.pos, f.body.yaw) for f in phys],
+                                   None, poses,
                                    half_size=max(1000.0, 2 * self.arena), arena=self.arena,
-                                   seeds={f.cfg.name: f.cfg.seed for f in phys})
+                                   seeds={f.cfg.name: f.cfg.seed + 7919 * (self._phys_builds - 1) for f in phys})
         for f in phys:
             old = f.body
             f.body = NMFBody(self.arena_phys, f.cfg.name, old.rng)
             f.body.lunge_t = getattr(old, "lunge_t", 0.0)
+            if getattr(old, "mode", "walk") == "fly":     # keep flying through a rebuild
+                nb = f.body
+                nb.mode, nb.flight_t = "fly", getattr(old, "flight_t", 0.0)
+                nb.yaw_rate = getattr(old, "yaw_rate", 0.0)
+                if getattr(old, "aero", None) is not None:
+                    nb.aero = old.aero
+                if hasattr(old, "_n0"):
+                    nb._n0 = old._n0
+                self.arena_phys.kinematic[f.cfg.name] = (np.array(old.pos, float), float(old.yaw))
+                nb.pos, nb.yaw = np.array(old.pos, float), float(old.yaw)
             self.arena_phys.lesions[f.cfg.name] = f.schema
             ch = getattr(f, "chain", None)
             if ch is not None and ch.available:
@@ -293,7 +310,7 @@ class World:
         self.bury_dead()
         if self.atm is not None:
             self.atm.step(dt / 3600, self.apples, len(self.flies), self.ambient_c, **self.soil_args())
-            self.sync_air()
+        self.sync_air()        # fruit follows the air temperature even without an atmosphere model
         # fruit chemistry also runs during detailed sessions (it changes over hours; update each
         # simulated minute so that a world run 1:1 without fast-forward still rots)
         self._live_h = getattr(self, "_live_h", 0.0) + dt / 3600

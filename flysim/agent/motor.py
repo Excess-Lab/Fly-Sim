@@ -40,8 +40,10 @@ class MotorParams:
     flight_scale: float = 40.0
     song_scale: float = 40.0
     arousal_scale: float = 30.0
-    # one giant-fibre spike triggers a short-mode take-off (von Reyn et al. 2014): spike count, not rate
-    gf_takeoff_spikes: int = 1
+    # In real flies one giant-fibre spike triggers a short-mode take-off (von Reyn et al. 2014), but
+    # the GF is silent at rest; the BANC model GF fires ~6 Hz at rest (artefact), so a single-spike
+    # rule makes flies take off constantly. A filtered-rate threshold is used instead (A31).
+    gf_takeoff_hz: float = 30.0
     takeoff_hz: float = 40.0
     land_hz: float = 30.0
     per_hz: float = 20.0
@@ -51,7 +53,7 @@ class MotorParams:
         "fwd_scale", "flight_scale", "song_scale", "arousal_scale", "takeoff_hz", "land_hz",
         "per_hz", "receptive_hz", "ovi_hz")} | {
         "turn_scale": "Rayshubskiy et al. 2024", "back_rest_hz": "Dahlhoff et al. 2025 (preprint)",
-        "back_scale": "Dahlhoff et al. 2025 (preprint)", "gf_takeoff_spikes": "von Reyn et al. 2014"})
+        "back_scale": "Dahlhoff et al. 2025 (preprint)", "gf_takeoff_hz": "A31 (single-spike rule of von Reyn 2014 unusable: BANC GF fires at rest)"})
 
 GROUPS = {
     "turn_DNa02": r"^DNa02$",
@@ -145,7 +147,7 @@ class MotorReadout:
             "forward_pop": sat(r["fwd"] + r["fwd_bdn2"] + r["fwd_odn1"], P.fwd_scale),
             "backward": sat(max(0.0, r["back"] - P.back_rest_hz), P.back_scale),
             "turn": float(np.clip(turn / P.turn_scale, -1.0, 1.0)),
-            "takeoff": self.gf_spikes >= P.gf_takeoff_spikes or r["takeoff"] > P.takeoff_hz,
+            "takeoff": r["gf"] > P.gf_takeoff_hz or r["takeoff"] > P.takeoff_hz,
             "flight_power": sat(r["flight_power"], P.flight_scale),
             "land": r["land"] > P.land_hz,
             "proboscis": r["per"] > P.per_hz,
