@@ -23,7 +23,7 @@ import pandas as pd
 # Proboscis threshold calibrated on behaviour (scripts/calibrate_per.py): the MN9 rate a FED fly
 # reaches at 800 mM sucrose, where fed flies extend on 50 % of trials (Inagaki et al. 2014).
 # MN9 firing during PER has never been recorded (Shiu et al. 2024).
-PER_HZ = {"female_banc": 46.7, "male": 20.7}
+PER_HZ = {"female_banc": 49.3, "male": 20.7}
 
 
 @dataclass

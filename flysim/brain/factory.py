@@ -31,7 +31,11 @@ def load(sex: str):
         raise ValueError(f"unknown sex {sex!r}")
     with _lock:  # never build two multi-GB connectomes at once (8 GB RAM)
         if sex not in _cache:
-            _cache[sex] = A.load(sex)
+            con, ann = A.load(sex)
+            if sex == "female_banc" and os.environ.get("FLYSIM_BANC_LEFT_EYE", "1") != "0":
+                from flysim.data.banc_eye import complete_left_eye
+                con, ann, _ = complete_left_eye(con, ann)      # A54d
+            _cache[sex] = (con, ann)
     return _cache[sex]
 
 

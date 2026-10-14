@@ -240,17 +240,24 @@ def _photoreceptor_columns(con: Connectome, ann: pd.DataFrame, sex: str):
         # partner, projected onto that optic lobe's two principal axes. Coarser than columns.
         xyz = ann[["x", "y", "z"]].to_numpy(float)
         side_all = ann.side.astype(str).to_numpy()
+        # optic-lobe side from POSITION (BANC side labels of optic-lobe types are inconsistent):
+        # left = the x half where most left-annotated neurons are
+        okp = ~np.isnan(xyz[:, 0])
+        xl = np.nanmedian(xyz[okp & (side_all == "left"), 0])
+        xr = np.nanmedian(xyz[okp & (side_all == "right"), 0])
+        mid = 0.5 * (xl + xr)
         part = np.full(len(pr), -1)
         for k, i in enumerate(pr):
             lo, hi = con.indptr[i], con.indptr[i + 1]
             tgt, w = con.post[lo:hi], np.abs(con.syn[lo:hi])
-            ok = ~np.isnan(xyz[tgt, 0]) & np.isin(side_all[tgt], ["left", "right"])
+            ok = ~np.isnan(xyz[tgt, 0])
             if ok.any():
                 part[k] = tgt[ok][np.argmax(w[ok])]
         keep = part >= 0
         pr, part = pr[keep], part[keep]
         xy = np.zeros((len(pr), 2))
-        side = side_all[part]
+        px = xyz[part, 0]
+        side = np.where((px > mid) == (xl > xr), "left", "right")
         for s_ in ("left", "right"):
             m = side == s_
             if m.sum() < 10:
