@@ -279,10 +279,14 @@ class CudaRunner:
     def run(self, n_steps, stim_idx, stim_p, stim_w, ks, ki, counts, rec_mask, rec_out):
         b, d = self.b, self.d
         p = b.p
-        if b._gpu_dirty:            # reset / plasticity switched / weights edited on the host
+        if b._gpu_dirty:            # reset / plasticity switched: host state is the truth
             self.push_state()
             self.d["w"] = cuda.to_device(np.ascontiguousarray(b.w))
             b._gpu_dirty = False
+            b._gpu_w_dirty = False
+        elif getattr(b, "_gpu_w_dirty", False):   # weights edited on the host (forgetting, hunger)
+            self.d["w"] = cuda.to_device(np.ascontiguousarray(b.w))
+            b._gpu_w_dirty = False
         self.push_params()
         n = b.con.n
         D = b.ring.shape[0]

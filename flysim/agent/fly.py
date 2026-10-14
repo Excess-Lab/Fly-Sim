@@ -111,7 +111,12 @@ class Fly:
             self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
             self.intero.idx, self.ppk23, self.noci_idx, self.prop_idx, self.windsense.idx,
             self.haltere_idx]))
-        self.motor = MotorReadout(ann)
+        from flysim.agent.motor import PER_HZ, MotorParams
+        mp = MotorParams()
+        if ds in PER_HZ:
+            mp.per_hz = PER_HZ[ds]
+            mp.sources["per_hz"] = "calibrated on Inagaki et al. 2014 PER behaviour (scripts/calibrate_per.py)"
+        self.motor = MotorReadout(ann, p=mp)
         from flysim.agent.physics import BodyTemperature
         self.thermal = BodyTemperature(25.0)
         from flysim.agent.mortality import Mortality
@@ -151,7 +156,20 @@ class Fly:
     def sense(self, world) -> np.ndarray:
         gains = self.meta.sensory_gains()
         self.olf.set_gains(gains)
-        self.gust.gains = {"sugar": gains["sugar"], "bitter": gains["bitter"]}
+        self.gust.gains = {"sugar": 1.0, "bitter": gains["bitter"]}
+        # hunger: presynaptic gain on sugar-GRN output synapses (Inagaki et al. 2012; A14)
+        f = float(gains["sugar"])
+        if not hasattr(self, "_sug_edges"):
+            con = self.brain.con
+            sug = self.gust.groups["sugar"]
+            self._sug_edges = np.concatenate([np.arange(con.indptr[i], con.indptr[i + 1]) for i in sug]) \
+                if len(sug) else np.zeros(0, np.int64)
+            self._sug_w0 = self.brain.w[self._sug_edges].copy()
+            self._sug_f = None
+        if self._sug_f is None or abs(f - self._sug_f) > 0.01:
+            self.brain.w[self._sug_edges] = self._sug_w0 * np.float32(f)
+            self.brain._gpu_w_dirty = True
+            self._sug_f = f
         al, ar = self.antenna_positions()
         r_olf = self.olf.rates(world.odor_at(al, self), world.odor_at(ar, self))
         on_apple = self.body.surface == "apple" and self.body.mode == "walk"
@@ -176,7 +194,7 @@ class Fly:
         n_any = sum(1 for c in contacts.values() if c)
         t_surf = (t_floor * n_floor + t_air * (n_any - n_floor)) / n_any if n_any else t_air
         temp = self.thermal.step(t_air, t_surf, n_any / 6.0, 0.01)
-        r_th = self.thermo.rates(temp)
+        r_th = self.thermo.rates(temp, 0.01)
         # leg nociceptors: noxious substrate temperature under each leg (>40 C), flies with a VNC.
         # ASSUMPTION(A24b): an electric shock through the floor grid drives the nociceptors of
         # every leg touching the floor at 150 Hz (no shock-specific receptors are annotated).
@@ -189,7 +207,7 @@ class Fly:
             for leg, ids in self.leg_noci.items():
                 on_floor = contacts.get(leg) == "floor"
                 hot = t_floor if on_floor else t_air
-                r_noci[off:off + len(ids)] = max(2.0 + 20.0 * max(0.0, hot - 40.0),
+                r_noci[off:off + len(ids)] = max(min(100.0, 2.0 + 9.0 * max(0.0, hot - 40.5)),
                                                  150.0 if (shock > 0 and on_floor) else 0.0)
                 off += len(ids)
         ap = world.nearest_apple(self.body.pos)

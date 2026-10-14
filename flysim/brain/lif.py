@@ -287,7 +287,8 @@ class Brain:
         self._coef_w = p.tau_w / (p.tau_w - p.t_mbr)
         self._rng = np.random.default_rng(self.seed)
         self._gpu = None
-        self._gpu_dirty = True
+        self._gpu_dirty = True        # host state replaced (reset, plasticity switched): push all
+        self._gpu_w_dirty = False     # host edited weights only: push weights
         self.bg_idx = np.arange(n, dtype=np.int64)   # which neurons get background noise
         self.disable_plasticity()
         self.reset()
@@ -434,7 +435,7 @@ class Brain:
         if self.pl_on:
             f = np.exp(-seconds * self.pl_c[5])
             self.w[self.pe_edge] = self.pe_w0 + (self.w[self.pe_edge] - self.pe_w0) * f
-            self._gpu_dirty = True
+            self._gpu_w_dirty = True      # weights only; the neuron state lives on the GPU
 
     def kc_mbon_strength(self) -> np.ndarray:
         """Relative KC->MBON weight per MBON (1 = naive)."""

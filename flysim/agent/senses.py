@@ -39,7 +39,11 @@ class Olfaction:
         # spontaneous-rate-subtracted DoOR responses: negative = inhibition below spontaneous
         resp = pd.read_csv(ODOR / "orn_responses_sfr_subtracted.csv", index_col=0)
         resp = resp.drop(columns=[c for c in ["door_name", "InChIKey"] if c in resp.columns])
-        resp = resp.drop(index=[i for i in resp.index if str(i).upper().startswith("SFR")])
+        sfr_rows = [i for i in resp.index if str(i).upper().startswith("SFR")]
+        resp = resp.drop(index=sfr_rows)
+        raw = pd.read_csv(ODOR / "orn_responses.csv", index_col=0)
+        raw_sfr = [i for i in raw.index if str(i).upper().startswith("SFR")]
+        sfr_norm = raw.loc[raw_sfr[0]] if raw_sfr else None
         self.resp = resp.fillna(0.0)
         t = ann.type.to_numpy()
         is_orn = pd.Series(t).str.match(r"^ORN_").to_numpy()
@@ -71,6 +75,17 @@ class Olfaction:
         self.M = np.vstack([self.M, geo])
         self.odorants = list(self.resp.index) + ["geosmin"]
         self.gain = np.ones(len(self.idx))
+        # measured spontaneous rate of each receptor type (DoOR SFR, normalised like the
+        # responses; x rmax gives Hz: median ~12 Hz, as in Hallem & Carlson 2006, range 1-47 Hz).
+        # Glomeruli without a value get the median. ASSUMPTION(A50)
+        sfr = np.full(len(self.idx), np.nan)
+        if sfr_norm is not None:
+            vals = pd.to_numeric(sfr_norm, errors="coerce")
+            for j, g in enumerate(self.glom):
+                if g in vals.index and vals[g] == vals[g]:
+                    sfr[j] = float(vals[g]) * self.p.rmax_hz
+        med = np.nanmedian(sfr) if np.isfinite(sfr).any() else self.p.sfr_hz
+        self.sfr = np.where(np.isnan(sfr), med, sfr)
 
     def set_gains(self, gains: dict):
         """gains: {'ORN_DM1': 2.0, ...} from neuromodulation (hunger)."""
@@ -97,7 +112,7 @@ class Olfaction:
         dl, dr = self._drive(conc_left), self._drive(conc_right)
         drive = np.where(self.side == "left", dl, np.where(self.side == "right", dr, 0.5 * (dl + dr)))
         evoked = p.rmax_hz * np.clip(drive, -1.0, 1.5) * self.gain  # hunger scales evoked part only
-        return np.maximum(0.0, p.sfr_hz + evoked)
+        return np.maximum(0.0, self.sfr + evoked)
 
 
 # ------------------------------------------------------------------------------------------
@@ -142,15 +157,27 @@ class Gustation:
         self.idx = np.concatenate(list(self.groups.values()))
         self.gains = {k: 1.0 for k in self.groups}
 
+    # sugar GRNs saturate: R = 1 + 60 * C / (C + 35 mM) (L-sensilla ~43 Hz at 50 mM sucrose;
+    # Dweck & Carlson 2023 curves; constants extrapolated, A52); apple flesh 10 g/100 g sugar
+    # ~0.55 M hexose; bitter GRNs up to ~60 Hz (Weiss et al. 2011); spontaneous ~1 Hz (Dweck &
+    # Carlson 2023). Other classes: 150 Hz x drive (A52, order of magnitude).
+    SUGAR_RMAX, SUGAR_K_M, SUGAR_M_PER_UNIT = 60.0, 0.035, 0.55
+    BITTER_RMAX = 60.0
+
     def rates(self, taste: dict, contact: float) -> np.ndarray:
         """taste: normalised 0..1 per class; contact: 0 (none) .. 1 (proboscis on food).
-        ASSUMPTION(A52): GRN rate = 150 Hz * concentration * contact, spontaneous ~1 Hz
-        (Hiroi et al. 2002; Dahanukar et al. 2007 orders of magnitude)."""
+        Hunger acts presynaptically on sugar GRN output (Fly.sense), not on these rates."""
         drive = fruit_taste_drive(taste)
         out = []
         for k, ids in self.groups.items():
-            c = drive.get(k, 0.0)
-            r = 1.0 + 150.0 * c * contact * self.gains.get(k, 1.0)
+            c = drive.get(k, 0.0) * contact
+            if k == "sugar":
+                m = c * self.SUGAR_M_PER_UNIT
+                r = 1.0 + self.SUGAR_RMAX * m / (m + self.SUGAR_K_M)
+            elif k == "bitter":
+                r = 1.0 + self.BITTER_RMAX * c * self.gains.get(k, 1.0)
+            else:
+                r = 1.0 + 150.0 * c * self.gains.get(k, 1.0)
             out.append(np.full(len(ids), r))
         return np.concatenate(out) if out else np.zeros(0)
 
@@ -164,11 +191,21 @@ class Thermo:
         self.cold = np.flatnonzero(t.str.match(r"^TRN_VP3").to_numpy())
         self.idx = np.concatenate([self.hot, self.cold])
 
-    def rates(self, temp_c: float) -> np.ndarray:
-        # ASSUMPTION(A53): hot cells ~+15 Hz/degC above 25 C, cold cells ~+10 Hz/degC below
-        # (Gallio et al. 2011; Budelli et al. 2019 orders of magnitude)
-        hot = 2.0 + 15.0 * max(0.0, temp_c - 25.0)
-        cold = 2.0 + 10.0 * max(0.0, 25.0 - temp_c)
+    def rates(self, temp_c: float, dt: float = 0.01) -> np.ndarray:
+        """Budelli et al. 2019 (Neuron): hot cells are tonic, 17 Hz at 20 C, 37 Hz at 25 C, 74 Hz
+        at 30 C (Q10 ~4.4); cold cells are purely phasic: ~30 Hz per cell regardless of the
+        steady temperature (92-102 Hz pooled, likely 3 cells), up to ~3x within ~0.2 C of cooling,
+        adapting within seconds, and silent for seconds when warmed. ASSUMPTION(A53): cold-cell
+        baseline per cell = pooled / 3; adaptation tau 2 s."""
+        if not hasattr(self, "_t_slow"):
+            self._t_slow = temp_c
+        a = 1.0 - np.exp(-dt / 2.0)
+        cooling = self._t_slow - temp_c
+        self._t_slow += a * (temp_c - self._t_slow)
+        hot = min(150.0, 37.0 * 4.4 ** ((temp_c - 25.0) / 10.0))
+        cold = 30.0 * (1.0 + 2.0 * float(np.clip(cooling / 0.2, 0.0, 1.0)))
+        if cooling < -0.05:            # warming silences cold cells for a few seconds
+            cold = 0.0
         return np.concatenate([np.full(len(self.hot), hot), np.full(len(self.cold), cold)])
 
 

@@ -31,10 +31,12 @@ class MetabolismParams:
     # energy content of 1 uL of fully sweet food relative to the reserve (calibrated so that one
     # meal restores a 24 h starved fly): ASSUMPTION(A13)
     energy_per_ul_sugar: float = 1.0 / 0.3
-    # ASSUMPTION(A14): maximal modulation factors. Inagaki 2012/2014 report roughly 2-fold
-    # changes of GRN Ca2+ responses between fed and 24 h starved flies.
-    sugar_gain_max: float = 2.0
-    sugar_gain_min: float = 0.5   # sated: sugar GRN responses ~4x lower than 24 h starved
+    # ASSUMPTION(A14): hunger modulation. Sugar: dopamine raises sugar-GRN presynaptic output
+    # ~1.3-1.4x in starved flies (Inagaki et al. 2012) - applied to the GRN output synapses
+    # (Fly.sense); the behavioural ~4.6-fold PER threshold shift (Inagaki 2014) must come from
+    # the network. Bitter and Or42b/Or85a: as before (Inagaki 2014; Root 2011; Ko 2015).
+    sugar_gain_max: float = 1.4
+    sugar_gain_min: float = 1.0
     bitter_gain_min: float = 0.5
     or42b_gain_max: float = 2.0
     or85a_gain_min: float = 0.5
