@@ -7,7 +7,7 @@ import pandas as pd
 from flysim.agent.body import FLY_RADIUS, Body
 from flysim.agent.metabolism import Metabolism
 from flysim.agent.motor import MotorReadout
-from flysim.agent.senses import (Gustation, Hearing, Interoception, Olfaction, Thermo, Vision,
+from flysim.agent.senses import (fruit_taste_drive, Gustation, Hearing, Interoception, Olfaction, Thermo, Vision,
                                  WindSense)
 from flysim.brain.factory import load, make_brain
 
@@ -103,14 +103,29 @@ class Fly:
             self.chain = MotorChain(self)
         self.prop_idx = self.chain.prop_idx if self.chain is not None else np.zeros(0, np.int64)
         self.haltere_idx = self.chain.haltere_idx if self.chain is not None else np.zeros(0, np.int64)
+        # tarsal taste neurons (A52b): sugar/bitter GRNs of each leg, tasting what the leg stands on
+        taken = set(np.concatenate([self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx,
+                                    self.hearing.idx, self.intero.idx, self.ppk23, self.ppl1, self.pam,
+                                    self.noci_idx, self.prop_idx, self.windsense.idx,
+                                    self.haltere_idx]).tolist())
+        self.leg_taste = {}
+        if "leg_taste" in ann.columns:
+            lt, tl = ann.leg_taste.astype(str).to_numpy(), ann.taste_leg.astype(str).to_numpy()
+            for leg in ("lf", "lm", "lh", "rf", "rm", "rh"):
+                for kind in ("sugar", "bitter"):
+                    ids = np.array([i for i in np.flatnonzero((tl == leg) & (lt == kind)) if i not in taken], np.int64)
+                    if len(ids):
+                        self.leg_taste[(leg, kind)] = ids
+        self.leg_taste_idx = np.concatenate(list(self.leg_taste.values())).astype(np.int64) if self.leg_taste \
+            else np.zeros(0, np.int64)
         self.stim_idx = np.concatenate([
             self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
             self.intero.idx, self.ppk23, self.ppl1, self.pam, self.noci_idx,
-            self.prop_idx, self.windsense.idx, self.haltere_idx]).astype(np.int64)
+            self.prop_idx, self.windsense.idx, self.haltere_idx, self.leg_taste_idx]).astype(np.int64)
         self.brain.set_poisson_targets(np.concatenate([
             self.olf.idx, self.gust.idx, self.thermo.idx, self.vision.idx, self.hearing.idx,
             self.intero.idx, self.ppk23, self.noci_idx, self.prop_idx, self.windsense.idx,
-            self.haltere_idx]))
+            self.haltere_idx, self.leg_taste_idx]))
         from flysim.agent.motor import PER_HZ, MotorParams
         mp = MotorParams()
         if ds in PER_HZ:
@@ -162,7 +177,8 @@ class Fly:
         f = float(gains["sugar"])
         if not hasattr(self, "_sug_edges"):
             con = self.brain.con
-            sug = self.gust.groups["sugar"]
+            sug = np.concatenate([self.gust.groups["sugar"]] +
+                                 [ids for (leg, kind), ids in self.leg_taste.items() if kind == "sugar"])
             self._sug_edges = np.concatenate([np.arange(con.indptr[i], con.indptr[i + 1]) for i in sug]) \
                 if len(sug) else np.zeros(0, np.int64)
             self._sug_w0 = self.brain.w[self._sug_edges].copy()
@@ -269,8 +285,25 @@ class Fly:
                 r_wind[self.windsense.side == sd] = 0.0
         r_hal = self.chain.haltere_rates(getattr(self.body, "yaw_rate", 0.0), self.body.mode == "fly") \
             if self.chain is not None else np.zeros(0)
+        # tarsal taste: a leg standing on the fruit tastes its surface (same transduction as A52/A103)
+        r_lt = np.ones(len(self.leg_taste_idx))
+        if len(self.leg_taste_idx):
+            surf = {}
+            off = 0
+            for (leg, kind), ids in self.leg_taste.items():
+                if contacts.get(leg) == "apple" and sch.legs.get(leg, "intact") != "amputated":
+                    if not surf:
+                        surf = fruit_taste_drive(dict(world.taste_at(self.body.pos)))
+                    c = float(surf.get(kind, 0.0))
+                    if kind == "sugar":
+                        m = c * self.gust.SUGAR_M_PER_UNIT
+                        r = 1.0 + self.gust.SUGAR_RMAX * m / (m + self.gust.SUGAR_K_M)
+                    else:
+                        r = 1.0 + self.gust.BITTER_RMAX * c
+                    r_lt[off:off + len(ids)] = r
+                off += len(ids)
         return np.concatenate([r_olf, r_gust, r_th, r_vis, r_hear, r_int, r_ppk, r_ppl1, r_pam,
-                               r_noci, r_prop, r_wind, r_hal])
+                               r_noci, r_prop, r_wind, r_hal, r_lt])
 
     def step(self, world, dt: float):
         rates = self.sense(world)

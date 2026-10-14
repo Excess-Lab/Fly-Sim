@@ -26,12 +26,36 @@ _cache = {}
 _lock = __import__("threading").Lock()
 
 
+def _male_leg_taste(con, ann):
+    """Tarsal taste neurons of the male: BANC labels (sugar/bitter) carried over through BANC's
+    malecns_match; the leg comes from the male's own entry nerve and side. ASSUMPTION(A52b)."""
+    import pandas as pd
+    from flysim.data import banc
+    try:
+        m = banc.meta()
+    except Exception:
+        return ann.assign(leg_taste="", taste_leg="")
+    cls, _ = banc._leg_taste(m)
+    mm = pd.to_numeric(m.malecns_match, errors="coerce")
+    sel = (cls != "") & mm.notna().to_numpy()
+    lut = dict(zip(mm[sel].astype("int64"), cls[sel]))
+    taste = np.array([lut.get(int(i), "") for i in con.ids], dtype=object)
+    nerve = {"ProLN": "f", "MesoLN": "m", "MetaLN": "h"}
+    en = ann["entry_nerve"].fillna("").astype(str).to_numpy() if "entry_nerve" in ann.columns else np.array([""] * con.n)
+    sd = ann.side.astype(str).str.lower().str[:1].to_numpy()
+    leg = np.array([(s_ if s_ in "lr" and s_ else "") + nerve.get(e, "") for s_, e in zip(sd, en)], dtype=object)
+    ok = (taste != "") & np.isin(leg, ["lf", "lm", "lh", "rf", "rm", "rh"])
+    return ann.assign(leg_taste=np.where(ok, taste, ""), taste_leg=np.where(ok, leg, ""))
+
+
 def load(sex: str):
     if sex not in ("female", "male", "female_banc"):
         raise ValueError(f"unknown sex {sex!r}")
     with _lock:  # never build two multi-GB connectomes at once (8 GB RAM)
         if sex not in _cache:
             con, ann = A.load(sex)
+            if sex == "male":
+                ann = _male_leg_taste(con, ann)                  # A52b via BANC matches
             if sex == "female_banc" and os.environ.get("FLYSIM_BANC_LEFT_EYE", "1") != "0":
                 from flysim.data.banc_eye import complete_left_eye
                 con, ann, _ = complete_left_eye(con, ann)      # A54d

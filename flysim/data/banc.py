@@ -19,7 +19,7 @@ NON_NEURON = {"glia", "not_a_neuron", "trachea"}
 META_COLS = ["banc_888_id", "super_class", "cell_class", "cell_sub_class", "cell_type",
              "fafb_cell_type", "malecns_cell_type", "region", "side", "nerve", "neuromere",
              "neurotransmitter_predicted", "neurotransmitter_verified", "fafb_match",
-             "malecns_match", "root_position_nm", "cell_function_detailed"]
+             "malecns_match", "root_position_nm", "cell_function_detailed", "body_part_sensory"]
 
 
 def meta() -> pd.DataFrame:
@@ -58,6 +58,19 @@ _LEG_NERVE = {"prothoracic_leg_nerve": ("fl", "ProLN"), "mesothoracic_leg_nerve"
               "metathoracic_leg_nerve": ("hl", "MetaLN")}
 _PROP = {"chordotonal_organ_neuron": "chordotonal organ", "hair_plate_neuron": "hair plate",
          "campaniform_sensillum_neuron": "campaniform sensilla"}
+
+
+def _leg_taste(m):
+    fd = m.cell_function_detailed.fillna("").astype(str)
+    bp = m.body_part_sensory.fillna("").astype(str)
+    cls = np.where(fd.str.startswith("sugar"), "sugar", np.where(fd.str.startswith("bitter"), "bitter",
+                   np.where(fd.str.startswith("water"), "water", "")))
+    part = {"front_leg": "f", "middle_leg": "m", "hind_leg": "h"}
+    sd = m.side.fillna("").astype(str).str.lower().str[:1].to_numpy()
+    leg = np.array([("l" if s_ == "l" else "r" if s_ == "r" else "") + part.get(b, "") for s_, b in zip(sd, bp)],
+                   dtype=object)
+    ok = np.isin(leg, ["lf", "lm", "lh", "rf", "rm", "rh"]) & (cls != "")
+    return np.where(ok, cls, ""), np.where(ok, leg, "")
 
 
 def annotations(con: Connectome, flywire_nt=None, flywire_type_nt=None, male_type_nt=None) -> pd.DataFrame:
@@ -139,5 +152,7 @@ def annotations(con: Connectome, flywire_nt=None, flywire_type_nt=None, male_typ
         "fafb_match": pd.to_numeric(m.fafb_match, errors="coerce").to_numpy(),
         "malecns_match": pd.to_numeric(m.malecns_match, errors="coerce").to_numpy(),
         "leg": leg, "entry_nerve": entry,
+        # tarsal taste neurons (sugar / bitter / water) and their leg (lf..rh), A52b
+        "leg_taste": _leg_taste(m)[0], "taste_leg": _leg_taste(m)[1],
         "x": xyz[:, 0], "y": xyz[:, 1], "z": xyz[:, 2],
     })
