@@ -21,7 +21,7 @@ GROUPS = {
     "turn_DNa02": r"^DNa02$",
     "turn_DNa01": r"^DNa01$",
     "fwd": r"^DNp09$",
-    # forward-walking command DNs used by locomotion="brain" (A101): BDN2 = DNg100,
+    # forward-walking command DNs used by locomotion="brain" (A102): BDN2 = DNg100,
     # oDN1 = DNg97 (BANC fanc_cell_type synonyms "BDN2, DNg100", "DNg97, oDN1")
     "fwd_bdn2": r"^DNg100$",
     "fwd_odn1": r"^DNg97$",
@@ -98,7 +98,7 @@ class MotorReadout:
         turn = (dl["turn_DNa02"] - dr["turn_DNa02"]) + 0.5 * (dl["turn_DNa01"] - dr["turn_DNa01"])
         return {
             "forward": sat(r["fwd"], 40.0),
-            # ASSUMPTION(A101): each forward command DN type is alone sufficient for forward
+            # ASSUMPTION(A102): each forward command DN type is alone sufficient for forward
             # walking (P9: Bidaye 2020; BDN2/DNg100: Tuthill/Brunton preprint 2025-26; oDN1/DNg97:
             # Bidaye lab preprint 2026), so their type-mean rates add; same 40 Hz scale as A31.
             "forward_pop": sat(r["fwd"] + r["fwd_bdn2"] + r["fwd_odn1"], 40.0),

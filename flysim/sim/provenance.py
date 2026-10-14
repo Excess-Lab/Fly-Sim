@@ -95,7 +95,7 @@ def fly_provenance(fly) -> dict:
         shortcuts.append("A25: sugar ingestion -> PAM reward DANs (measured physiology)")
     approx = list(ALWAYS_APPROX)
     if getattr(c, "locomotion", "a30") == "brain":
-        approx.append(("A101", "forward drive = DNp09 + DNg100 + DNg97 population (no A30)"))
+        approx.append(("A102", "forward drive = DNp09 + DNg100 + DNg97 population (no A30)"))
     elif c.spontaneous:
         approx.append(("A30", "spontaneous locomotor drive"))
     return {"fly": c.name, "sex": c.sex, "seed": c.seed, "mode": mechanism_mode(c, has_vnc, getattr(fly, "was_shocked", False)),

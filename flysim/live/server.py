@@ -124,6 +124,10 @@ SCHEMA = {
                         "default": True, "norm": "действует только для ударов тока; жар идёт через ноцицепторы ног по коннектому"},
         "reward_shortcut": {"label": "Сахар → дофамин PAM по данным опытов (A25)", "type": "bool",
                             "default": True, "norm": "выкл. — только путь по коннектому"},
+        "locomotion": {"label": "Кто запускает ходьбу", "type": "select",
+                       "options": {"a30": "моторчик A30 + мозг", "brain": "только мозг"},
+                       "default": "a30",
+                       "norm": "«только мозг» — объективнее: ходьба и повороты только от нисходящих нейронов (A102)"},
         "spontaneous": {"label": "Спонтанная ходьба (A30)", "type": "bool", "default": True,
                         "norm": "выкл. — двигается только по командам мозга"},
     },
@@ -160,12 +164,15 @@ _attach_help(SCHEMA)
 # Ready-made conditions for the "new observation" page. kind: objective = everything comes from the
 # connectome where the model allows it (shortcuts A24/A25 off, no fast-forward); directed = set up
 # to provoke or show something (may use fast-forward or fewer controls).
-_NOSHORT = {"us_shortcut": False, "reward_shortcut": False, "plasticity": True, "spontaneous": True}
+# objective: no A24/A25 shortcuts and walking/turning only from descending neurons (A102)
+_NOSHORT = {"us_shortcut": False, "reward_shortcut": False, "plasticity": True, "spontaneous": True,
+            "locomotion": "brain"}
 _ONE2ONE = {"ff_hours": 0, "session_s": 120, "limit_compute_h": 22, "neural_record": "every_frame"}
 PRESETS = {
     "obj_life": {"kind": "objective", "title": "Объективная жизнь 1 к 1",
                  "desc": "Самец и голодная самка у надрезанного яблока. Каждая секунда считается полностью, "
-                         "обходы A24/A25 выключены: поведение только от коннектома и тела.",
+                         "обходы A24/A25 выключены, ходьбу и повороты запускает только мозг. Мухи двигаются "
+                         "мало: так коннектом сейчас ведёт себя без «моторчика» (RESEARCH_WALKING.md).",
                  "cfg": {"world": {"size_m": 0.3, "climate": "container"}, "flies": {"males": 1, "females": 1,
                          "starved_h": 18}, "science": _NOSHORT, "run": _ONE2ONE,
                          "apples": {"list": [{"age_days": 2, "cut": True, "radius_mm": 32, "x_mm": 0, "y_mm": 0}]}}},
@@ -188,6 +195,12 @@ PRESETS = {
                    "cfg": {"world": {"size_m": 0.4, "climate": "garden", "start_hour": 19.5, "garden_wind": 1.0,
                            "soil": True, "moist": True}, "flies": {"males": 2, "females": 2, "starved_h": 12},
                            "science": _NOSHORT, "run": _ONE2ONE}},
+    "dir_realistic": {"kind": "directed", "title": "Реалистичная жизнь (с моторчиком A30)",
+                      "desc": "То же, что «Объективная жизнь», но мухи ходят с допущением A30: постоянный "
+                              "слабый толчок вперёд и случайные повороты. Поведение живее, но ходьба — не выбор мухи.",
+                      "cfg": {"world": {"size_m": 0.3, "climate": "container"}, "flies": {"males": 1, "females": 1,
+                              "starved_h": 18}, "science": {**_NOSHORT, "locomotion": "a30"}, "run": _ONE2ONE,
+                              "apples": {"list": [{"age_days": 2, "cut": True, "radius_mm": 32, "x_mm": 0, "y_mm": 0}]}}},
     "dir_courtship": {"kind": "directed", "title": "Ухаживание",
                       "desc": "Самец и девственная самка в маленькой арене 10 см, сытые. Ищем ориентацию, песню, "
                               "копуляцию (Siegel & Hall 1979).",
@@ -346,6 +359,7 @@ class Simulation:
                           plasticity=bool(sci["plasticity"]), us_punish_shortcut=bool(sci["us_shortcut"]),
                           us_reward_shortcut=bool(sci.get("reward_shortcut", True)),
                           spontaneous=bool(sci["spontaneous"]),
+                          locomotion=str(sci.get("locomotion", "a30")),
                           injuries=self._injuries_for(sex, self.n_made[sex]),
                           body="nmf"), pos=pos, yaw=yaw)
         if note:

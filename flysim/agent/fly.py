@@ -34,7 +34,7 @@ class FlyConfig:
     connectome: str = ""
     # Locomotion source. "a30" (default): A30 constant forward drive + OU turning added to the
     # brain's DN readout. "brain": no A30 at all; forward drive = population of forward-walking
-    # command DNs (DNp09/P9, DNg100/BDN2, DNg97/oDN1; ASSUMPTION A101), turning = DNa02/DNa01
+    # command DNs (DNp09/P9, DNg100/BDN2, DNg97/oDN1; ASSUMPTION A102), turning = DNa02/DNa01
     # (A31). See RESEARCH_WALKING.md: in BANC this walks only when hunger x food odour ignite
     # the DNg100 loop; the male connectome never initiates walking.
     locomotion: str = "a30"
@@ -299,7 +299,7 @@ class Fly:
                            spontaneous=False, o2_pct=world.o2_pct * self.meta.health * self._chill())
         elif self.cfg.locomotion == "brain":
             cmd = dict(self.cmd)
-            cmd["forward"] = cmd["forward_pop"]   # A101: brain-generated forward drive, no A30
+            cmd["forward"] = cmd["forward_pop"]   # A102: brain-generated forward drive, no A30
             near = world.nearest_apple(self.body.pos)
             self.body.step(cmd, dt, near.center, near.p.radius_mm, world.arena,
                            spontaneous=False,
