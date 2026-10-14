@@ -122,6 +122,9 @@ def _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, c, kc_new,
     # exponential with tau_base (c[8] = per-window decay); c[9] counts windows
     c[9] += 1.0
     lam = max(c[8], 1.0 - 1.0 / c[9])
+    # settling period after the network starts (c[11] windows): the start-up transient of the DANs
+    # must not write memories; the dopamine baseline is learned meanwhile (A26b)
+    warm = c[9] <= c[11]
     gate = np.empty(da_tr.shape[0])
     gate_b = np.empty(da_tr.shape[0])
     for i in range(da_tr.shape[0]):
@@ -129,8 +132,8 @@ def _plasticity(x_tr, da_tr, w, pe_edge, pe_pre, pe_m, pe_w0, kc_idx, c, kc_new,
         da_base[i] = lam * da_base[i] + (1.0 - lam) * da_tr[i]
         thr = c[10] * da_base[i]
         # fraction of the current / preceding DA level that exceeds the baseline threshold
-        gate[i] = max(0.0, da_tr[i] - thr) / da_tr[i] if da_tr[i] > 0.0 else 0.0
-        gate_b[i] = max(0.0, prev - thr) if prev > 0.0 else 0.0
+        gate[i] = max(0.0, da_tr[i] - thr) / da_tr[i] if da_tr[i] > 0.0 and not warm else 0.0
+        gate_b[i] = max(0.0, prev - thr) if prev > 0.0 and not warm else 0.0
     for p in range(pe_edge.shape[0]):
         e = pe_edge[p]
         k_i = pe_pre[p]
@@ -364,7 +367,7 @@ class Brain:
         self.dan_m, self.dan_a = z32, zf
         self.pe_edge, self.pe_pre, self.pe_m, self.pe_w0 = z64, z32, z32, zf
         self.kc_idx = z64
-        self.pl_c = np.zeros(11, np.float64)
+        self.pl_c = np.zeros(12, np.float64)
         self.kc_new = np.zeros(1, np.float32)
         self.da_new = zf.copy()
         self.da_base = zf.copy()
@@ -372,7 +375,7 @@ class Brain:
     def enable_plasticity(self, kc, mbon, dan, tau_elig_s=1.0, tau_da_s=0.5,
                           eta_dep=2.0, eta_rec=0.02, tau_forget_s=3 * 3600.0,
                           eta_pot=0.5, w_max_ratio=2.0, tau_base_s=20.0,
-                          base_threshold=1.2):
+                          base_threshold=1.2, warmup_s=2.0):
         """Make KC->MBON synapses plastic, gated by dopamine. (Host state is refreshed first.)
 
         Which DAN modulates which MBON is taken from the connectome itself: a DAN spike adds
@@ -424,7 +427,8 @@ class Brain:
         dt_s = PLAST_EVERY * self.p.dt * 1e-3
         self.pl_c = np.array([dt_s, np.exp(-dt_s / tau_elig_s), np.exp(-dt_s / tau_da_s),
                               eta_dep, eta_rec, 1.0 / tau_forget_s, eta_pot, w_max_ratio,
-                              np.exp(-dt_s / tau_base_s), 0.0, base_threshold])
+                              np.exp(-dt_s / tau_base_s), 0.0, base_threshold,
+                              round(warmup_s / dt_s)])
         self.kc_new = np.zeros(n, np.float32)
         self.da_new = np.zeros(len(mbon), np.float32)
         self.da_base = np.zeros(len(mbon), np.float32)
@@ -443,8 +447,10 @@ class Brain:
         """Relative KC->MBON weight per MBON (1 = naive)."""
         num = np.bincount(self.pe_m, self.w[self.pe_edge], minlength=len(self.da_tr))
         den = np.bincount(self.pe_m, self.pe_w0, minlength=len(self.da_tr))
-        # MBONs without KC input in this connectome (den = 0) have nothing to learn: report 1
-        return np.where(den > 0, num / np.maximum(den, 1e-9), 1.0)
+        # MBONs without KC input (den = 0) have nothing to learn; MBONs with < 10 plastic synapses
+        # (e.g. BANC MBON10: one) are too small to read a memory from - one coincidence zeroes them
+        cnt = np.bincount(self.pe_m, minlength=len(self.da_tr))
+        return np.where((den > 0) & (cnt >= 10), num / np.maximum(den, 1e-9), 1.0)
 
     def _pull_gpu(self):
         """Bring the GPU state back to the host before the host edits it (traces survive)."""
@@ -467,6 +473,8 @@ class Brain:
         if not hasattr(self, "gj_a"):
             self.set_gap_junctions([])
         self.t_step = 0
+        if getattr(self, "pl_on", False):
+            self.pl_c[9] = 0.0     # restarted network: settle again before learning
         if seed is not None:
             self._rng = np.random.default_rng(seed)
             self._gpu_seed = int(seed)      # GPU random states are re-created from it

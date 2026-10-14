@@ -170,14 +170,14 @@ def k_gather(w, idx, out):
 
 
 @cuda.jit
-def k_plast_gate(da_tr, da_new, da_base, c, gate, gate_b, lam):
+def k_plast_gate(da_tr, da_new, da_base, c, gate, gate_b, lam, warm):
     i = cuda.grid(1)
     if i < da_tr.shape[0]:
         prev = da_tr[i] - da_new[i]
         da_base[i] = lam * da_base[i] + (1.0 - lam) * da_tr[i]
         thr = c[10] * da_base[i]
-        gate[i] = max(0.0, da_tr[i] - thr) / da_tr[i] if da_tr[i] > 0.0 else 0.0
-        gate_b[i] = max(0.0, prev - thr) if prev > 0.0 else 0.0
+        gate[i] = max(0.0, da_tr[i] - thr) / da_tr[i] if da_tr[i] > 0.0 and not warm else 0.0
+        gate_b[i] = max(0.0, prev - thr) if prev > 0.0 and not warm else 0.0
 
 
 @cuda.jit
@@ -262,7 +262,7 @@ class CudaRunner:
                 a = np.zeros(1, a.dtype)
             self.d[k] = cuda.to_device(a)
         c = np.ascontiguousarray(self.b.pl_c, dtype=np.float64)
-        self.d["pl_c"] = cuda.to_device(c if c.size >= 11 else np.zeros(11))
+        self.d["pl_c"] = cuda.to_device(c if c.size >= 12 else np.zeros(12))
         self.n_gap = len(self.b.gj_a)
         self.n_pe = len(self.b.pe_edge)
         self.n_m = len(self.b.da_tr)
@@ -345,7 +345,7 @@ class CudaRunner:
                 b.pl_c[9] += 1.0
                 lam = max(b.pl_c[8], 1.0 - 1.0 / b.pl_c[9])
                 k_plast_gate[_blocks(self.n_m), TPB](d["da_tr"], d["da_new"], d["da_base"], c,
-                                                     gate, gate_b, lam)
+                                                     gate, gate_b, lam, bool(b.pl_c[9] <= b.pl_c[11]))
                 k_plast_edges[_blocks(self.n_pe), TPB](d["x_tr"], d["kc_new"], d["da_new"], gate, gate_b,
                                                        d["w"], d["pe_edge"], d["pe_pre"], d["pe_m"],
                                                        d["pe_w0"], c)

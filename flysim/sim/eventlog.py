@@ -264,10 +264,18 @@ class EventLog:
                 if close and not getattr(f, key + "_enc", False):
                     E("encounter", f"стычка с {o.cfg.name} (близко, P1 возбуждён)", others=[o.cfg.name])
                 setattr(f, key + "_enc", close)
-        if (p["mode"], p["surface"]) != (s["mode"], s["surface"]):
-            what = "в полёте" if s["mode"] == "fly" else {
-                "apple": "на яблоке", "floor": "на полу", "wall": "на стенке"}.get(s["surface"], str(s["surface"]))
-            E("location", f"теперь {what}", mode=s["mode"], surface=s["surface"])
+        # location: reported once the new place has lasted >= 1 s (legs straddling the floor/wall
+        # edge flip the majority-surface label many times a second)
+        loc = (s["mode"], s["surface"])
+        if not hasattr(f, "_loc_reported"):
+            f._loc_reported, f._loc_since, f._loc_cand = loc, t, loc
+        if loc != f._loc_cand:
+            f._loc_cand, f._loc_since = loc, t
+        if f._loc_cand != f._loc_reported and t - f._loc_since >= 1.0:
+            f._loc_reported = f._loc_cand
+            what = "в полёте" if loc[0] == "fly" else {
+                "apple": "на яблоке", "floor": "на полу", "wall": "на стенке"}.get(loc[1], str(loc[1]))
+            E("location", f"теперь {what}", mode=loc[0], surface=loc[1])
         if s["proboscis"] and not p["proboscis"]:
             if s["surface"] == "apple":
                 E("feeding_start", f"выдвинула хоботок и ест (сахар {s['taste_sugar']:.2f}, спирт "
