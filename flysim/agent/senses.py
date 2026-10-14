@@ -34,7 +34,7 @@ class OlfactionParams:
 
 
 class Olfaction:
-    def __init__(self, ann: pd.DataFrame, p: OlfactionParams | None = None):
+    def __init__(self, ann: pd.DataFrame, p: OlfactionParams | None = None, con=None):
         self.p = p or OlfactionParams()
         # spontaneous-rate-subtracted DoOR responses: negative = inhibition below spontaneous
         resp = pd.read_csv(ODOR / "orn_responses_sfr_subtracted.csv", index_col=0)
@@ -45,7 +45,21 @@ class Olfaction:
         is_orn = pd.Series(t).str.match(r"^ORN_").to_numpy()
         self.idx = np.flatnonzero(is_orn)
         self.glom = np.array([s[4:] for s in t[self.idx]])
-        self.side = ann.side.to_numpy()[self.idx]
+        self.side = ann.side.astype(str).to_numpy()[self.idx].astype(object)
+        if con is not None:
+            # ASSUMPTION(A50c): ORNs without an annotated side (BANC 743, Male CNS 409; no position
+            # either) get the side of the antennal lobe that receives more of their synapses -
+            # each ORN projects to both lobes with an ipsilateral bias (Gaudry et al. 2013). On
+            # ORNs with a known side this rule agrees in 80 % (BANC) / 70 % (Male CNS).
+            side_all = ann.side.astype(str).to_numpy()
+            for k, i in enumerate(self.idx):
+                if self.side[k] in ("left", "right"):
+                    continue
+                lo, hi = con.indptr[i], con.indptr[i + 1]
+                tg, w = con.post[lo:hi], np.abs(con.syn[lo:hi])
+                l_, r_ = w[side_all[tg] == "left"].sum(), w[side_all[tg] == "right"].sum()
+                if l_ != r_:
+                    self.side[k] = "left" if l_ > r_ else "right"
         # response matrix: odorant x ORN neuron
         cols = [g if g in self.resp.columns else None for g in self.glom]
         self.M = np.zeros((len(self.resp.index), len(self.idx)))

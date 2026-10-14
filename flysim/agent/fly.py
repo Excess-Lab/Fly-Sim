@@ -62,7 +62,7 @@ class Fly:
         # 2010; Maimon et al. 2010; Suver et al. 2012). x1.3 walking, x1.6 flight.
         self.lptc = np.flatnonzero(t.str.match(r"^(HS[ENS]|VS\d*|H2)$").to_numpy())
         self.lptc_g0 = self.brain.gain[self.lptc].copy()
-        self.olf = Olfaction(ann)
+        self.olf = Olfaction(ann, con=con)
         self.gust = Gustation(ann)
         self.thermo = Thermo(ann)
         self.vision = Vision(con, ann, ds)
